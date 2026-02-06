@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git init:*)",
+      "Bash(gh auth:*)",
+      "Bash(dir:*)",
+      "Bash(git -C \"C:/Users/Mcsfe/OneDrive/Desktop/TV Alarm Clock\" config user.name)",
+      "Bash(git -C \"C:/Users/Mcsfe/OneDrive/Desktop/TV Alarm Clock\" config --global user.name)",
+      "Bash(git config:*)",
+      "Bash(git -C \"C:/Users/Mcsfe/OneDrive/Desktop/TV Alarm Clock\" remote add origin https://github.com/mcsfeb/TV-Alarm-Clock.git)",
+      "Bash(git -C \"C:/Users/Mcsfe/OneDrive/Desktop/TV Alarm Clock\" status)",
+      "Bash(git -C \"C:/Users/Mcsfe/OneDrive/Desktop/TV Alarm Clock\" add .claude/settings.local.json)",
+      "Bash(git -C \"C:/Users/Mcsfe/OneDrive/Desktop/TV Alarm Clock\" -c user.name=\"mcsfeb\" -c user.email=\"mcsfeb@users.noreply.github.com\" commit -m \"$\\(cat <<''EOF''\nInitial commit\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")"
+    ]
+  }
+}
