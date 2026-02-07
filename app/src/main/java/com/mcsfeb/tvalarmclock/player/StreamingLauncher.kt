@@ -11,39 +11,47 @@ import com.mcsfeb.tvalarmclock.data.model.StreamingApp
  * StreamingLauncher - The engine that deep-links into streaming apps.
  *
  * This class handles:
- * 1. Checking if a streaming app is installed on the TV
+ * 1. Checking if a streaming app is installed on the TV (including alternate package names)
  * 2. Building the correct deep link intent for each app
  * 3. Launching the app with the right content ID
  * 4. Handling errors gracefully if the app isn't installed or the link fails
  *
- * Each streaming app has quirks:
- * - Netflix needs a special "source=30" extra or it ignores the deep link
- * - YouTube uses a custom "vnd.youtube:" scheme instead of https
- * - Hulu sometimes needs to be force-stopped before re-launching
- * - None of these are official APIs, so they can break with app updates!
+ * Many streaming apps have DIFFERENT package names depending on the device:
+ * - YouTube mobile: com.google.android.youtube
+ * - YouTube on Android TV: com.google.android.youtube.tv
+ * - HBO was com.hbo.hbonow, then com.hbo.max.android.tv, now com.wbd.stream
+ *
+ * We check the primary package AND all alternates to find what's actually installed.
  */
 class StreamingLauncher(private val context: Context) {
 
     /**
-     * Launch a streaming app to specific content.
-     *
-     * @param app Which streaming service to open
-     * @param contentId The ID of the content to play (video ID, title ID, etc.)
-     * @return LaunchResult indicating success or what went wrong
+     * Find which package name is actually installed for a streaming app.
+     * Checks the primary package first, then all alternates.
+     * Returns null if none are installed.
      */
-    fun launch(app: StreamingApp, contentId: String): LaunchResult {
-        // Step 1: Check if the app is installed
-        if (!isAppInstalled(app.packageName)) {
-            return LaunchResult.AppNotInstalled(app.displayName)
+    fun findInstalledPackage(app: StreamingApp): String? {
+        // Check primary package first
+        if (isPackageInstalled(app.packageName)) return app.packageName
+
+        // Check alternate package names
+        for (altPackage in app.altPackageNames) {
+            if (isPackageInstalled(altPackage)) return altPackage
         }
 
-        // Step 2: Build the deep link URL
+        return null
+    }
+
+    /**
+     * Launch a streaming app to specific content.
+     */
+    fun launch(app: StreamingApp, contentId: String): LaunchResult {
+        val installedPackage = findInstalledPackage(app)
+            ?: return LaunchResult.AppNotInstalled(app.displayName)
+
         val deepLinkUrl = StreamingApp.buildDeepLink(app, contentId)
+        val intent = buildIntent(app, deepLinkUrl, installedPackage)
 
-        // Step 3: Build the intent with app-specific quirks
-        val intent = buildIntent(app, deepLinkUrl)
-
-        // Step 4: Try to launch!
         return try {
             context.startActivity(intent)
             LaunchResult.Success(app.displayName, deepLinkUrl)
@@ -56,17 +64,13 @@ class StreamingLauncher(private val context: Context) {
 
     /**
      * Launch a streaming app without specific content (just open the app).
-     *
-     * @param app Which streaming service to open
-     * @return LaunchResult indicating success or what went wrong
      */
     fun launchAppOnly(app: StreamingApp): LaunchResult {
-        if (!isAppInstalled(app.packageName)) {
-            return LaunchResult.AppNotInstalled(app.displayName)
-        }
+        val installedPackage = findInstalledPackage(app)
+            ?: return LaunchResult.AppNotInstalled(app.displayName)
 
-        val launchIntent = context.packageManager.getLeanbackLaunchIntentForPackage(app.packageName)
-            ?: context.packageManager.getLaunchIntentForPackage(app.packageName)
+        val launchIntent = context.packageManager.getLeanbackLaunchIntentForPackage(installedPackage)
+            ?: context.packageManager.getLaunchIntentForPackage(installedPackage)
 
         return if (launchIntent != null) {
             try {
@@ -83,17 +87,16 @@ class StreamingLauncher(private val context: Context) {
 
     /**
      * Check which streaming apps are installed on this TV.
-     *
-     * @return List of installed streaming apps
+     * Checks both primary and alternate package names for each app.
      */
     fun getInstalledApps(): List<StreamingApp> {
-        return StreamingApp.entries.filter { isAppInstalled(it.packageName) }
+        return StreamingApp.entries.filter { findInstalledPackage(it) != null }
     }
 
     /**
-     * Check if a specific app is installed.
+     * Check if a specific package is installed.
      */
-    fun isAppInstalled(packageName: String): Boolean {
+    fun isPackageInstalled(packageName: String): Boolean {
         return try {
             context.packageManager.getPackageInfo(packageName, 0)
             true
@@ -104,8 +107,9 @@ class StreamingLauncher(private val context: Context) {
 
     /**
      * Build the intent with app-specific quirks and extras.
+     * Uses the actual installed package name (which may be an alternate).
      */
-    private fun buildIntent(app: StreamingApp, deepLinkUrl: String): Intent {
+    private fun buildIntent(app: StreamingApp, deepLinkUrl: String, installedPackage: String): Intent {
         val intent = Intent(Intent.ACTION_VIEW).apply {
             data = Uri.parse(deepLinkUrl)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -114,84 +118,38 @@ class StreamingLauncher(private val context: Context) {
         // App-specific customizations
         when (app) {
             StreamingApp.NETFLIX -> {
-                // Netflix on Android TV uses a different package than mobile
-                // and REQUIRES the "source=30" extra or the deep link is ignored
                 intent.setClassName("com.netflix.ninja", "com.netflix.ninja.MainActivity")
                 intent.putExtra("source", "30")
             }
 
             StreamingApp.YOUTUBE -> {
-                // YouTube uses the vnd.youtube: scheme, set package to ensure
-                // it opens in the YouTube app and not a browser
-                intent.setPackage("com.google.android.youtube")
+                intent.setPackage(installedPackage)
             }
 
             StreamingApp.HULU -> {
-                // Hulu on Android TV has a specific activity
-                intent.setClassName(
-                    "com.hulu.livingroomplus",
-                    "com.hulu.livingroomplus.WKFactivity"
-                )
-            }
-
-            StreamingApp.DISNEY_PLUS -> {
-                intent.setPackage("com.disney.disneyplus")
-            }
-
-            StreamingApp.PRIME_VIDEO -> {
-                intent.setPackage("com.amazon.amazonvideo.livingroom")
+                // Try the specific activity, fall back to just package
+                try {
+                    intent.setClassName(
+                        "com.hulu.livingroomplus",
+                        "com.hulu.livingroomplus.WKFactivity"
+                    )
+                } catch (e: Exception) {
+                    intent.setPackage(installedPackage)
+                }
             }
 
             StreamingApp.HBO_MAX -> {
-                intent.setPackage("com.hbo.hbonow")
-            }
-
-            StreamingApp.SLING_TV -> {
-                intent.setPackage("com.sling")
-            }
-
-            StreamingApp.PEACOCK -> {
-                intent.setPackage("com.peacocktv.peacockandroid")
-            }
-
-            StreamingApp.PARAMOUNT_PLUS -> {
-                intent.setPackage("com.cbs.ott")
-            }
-
-            StreamingApp.APPLE_TV -> {
-                intent.setPackage("com.apple.atve.androidtv.appletv")
-            }
-
-            StreamingApp.TUBI -> {
-                intent.setPackage("com.tubitv")
-            }
-
-            StreamingApp.PLUTO_TV -> {
-                intent.setPackage("tv.pluto.android")
-            }
-
-            StreamingApp.CRUNCHYROLL -> {
-                intent.setPackage("com.crunchyroll.crunchyroid")
+                // HBO has changed package names multiple times, use whatever is installed
+                intent.setPackage(installedPackage)
             }
 
             StreamingApp.YOUTUBE_TV -> {
-                intent.setPackage("com.google.android.apps.tv.launcherx")
+                intent.setPackage(installedPackage)
             }
 
-            StreamingApp.FUBO_TV -> {
-                intent.setPackage("com.fubo.firetv")
-            }
-
-            StreamingApp.DISCOVERY_PLUS -> {
-                intent.setPackage("com.discovery.discoveryplus.androidtv")
-            }
-
-            StreamingApp.PLEX -> {
-                intent.setPackage("com.plexapp.android")
-            }
-
-            StreamingApp.STARZ -> {
-                intent.setPackage("com.bydeluxe.d3.android.program.starz")
+            // All other apps: just set the installed package name
+            else -> {
+                intent.setPackage(installedPackage)
             }
         }
 

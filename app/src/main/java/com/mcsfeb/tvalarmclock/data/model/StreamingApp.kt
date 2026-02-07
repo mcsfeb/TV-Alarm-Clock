@@ -18,6 +18,7 @@ package com.mcsfeb.tvalarmclock.data.model
 enum class StreamingApp(
     val displayName: String,
     val packageName: String,
+    val altPackageNames: List<String> = emptyList(),  // Alternate package names to check
     val deepLinkFormat: String,
     val contentIdLabel: String,
     val description: String,
@@ -36,7 +37,8 @@ enum class StreamingApp(
 
     YOUTUBE(
         displayName = "YouTube",
-        packageName = "com.google.android.youtube",
+        packageName = "com.google.android.youtube.tv",
+        altPackageNames = listOf("com.google.android.youtube"),
         deepLinkFormat = "vnd.youtube:{id}",
         contentIdLabel = "YouTube Video ID",
         description = "The letters after watch?v= in a YouTube link (e.g., dQw4w9WgXcQ)",
@@ -72,7 +74,8 @@ enum class StreamingApp(
 
     HBO_MAX(
         displayName = "Max (HBO)",
-        packageName = "com.hbo.hbonow",
+        packageName = "com.wbd.stream",
+        altPackageNames = listOf("com.hbo.hbonow", "com.hbo.max.android.tv"),
         deepLinkFormat = "https://play.max.com/episode/{id}",
         contentIdLabel = "Max Episode ID",
         description = "The episode ID from a Max/HBO URL",
@@ -144,7 +147,8 @@ enum class StreamingApp(
 
     YOUTUBE_TV(
         displayName = "YouTube TV",
-        packageName = "com.google.android.apps.tv.launcherx",
+        packageName = "com.google.android.youtube.tvunplugged",
+        altPackageNames = listOf("com.google.android.apps.tv.launcherx"),
         deepLinkFormat = "https://tv.youtube.com/watch/{id}",
         contentIdLabel = "YouTube TV Channel",
         description = "Live TV channel or recording ID",
