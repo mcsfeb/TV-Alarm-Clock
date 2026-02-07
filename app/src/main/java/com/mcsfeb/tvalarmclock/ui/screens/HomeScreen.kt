@@ -9,6 +9,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -23,20 +24,20 @@ import java.util.*
 /**
  * HomeScreen - The main screen of the TV Alarm Clock app.
  *
- * For Milestone 1, this shows:
+ * Shows:
  * - A live clock (current time)
- * - A hardcoded alarm time
- * - A "Set Alarm" button that schedules the alarm for 30 seconds from now
- * - Status text showing whether the alarm is set
- *
- * In future milestones, this will show a list of all alarms and content choices.
+ * - Alarm status and time
+ * - Selected streaming app (if any)
+ * - Buttons: Set Alarm, Pick Streaming App, Cancel Alarm
  */
 @Composable
 fun HomeScreen(
     onSetAlarm: () -> Unit,
     onCancelAlarm: () -> Unit,
+    onPickStreamingApp: () -> Unit,
     isAlarmSet: Boolean,
-    alarmTimeText: String
+    alarmTimeText: String,
+    selectedAppName: String?
 ) {
     // Live clock that updates every second
     var currentTime by remember { mutableStateOf(getCurrentTimeFormatted()) }
@@ -78,59 +79,115 @@ fun HomeScreen(
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(32.dp))
 
-            // Alarm info card
-            Box(
-                modifier = Modifier
-                    .border(
-                        width = 2.dp,
-                        color = if (isAlarmSet) AlarmActiveGreen else DarkSurfaceVariant,
-                        shape = RoundedCornerShape(16.dp)
-                    )
-                    .background(
-                        color = DarkSurface,
-                        shape = RoundedCornerShape(16.dp)
-                    )
-                    .padding(32.dp)
+            // Status cards row
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                verticalAlignment = Alignment.Top
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = if (isAlarmSet) "Alarm Set For" else "No Alarm Set",
-                        fontSize = 24.sp,
-                        color = if (isAlarmSet) AlarmActiveGreen else TextSecondary
-                    )
-
-                    if (isAlarmSet) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = alarmTimeText,
-                            fontSize = 36.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
+                // Alarm info card
+                Box(
+                    modifier = Modifier
+                        .border(
+                            width = 2.dp,
+                            color = if (isAlarmSet) AlarmActiveGreen else DarkSurfaceVariant,
+                            shape = RoundedCornerShape(16.dp)
                         )
+                        .background(
+                            color = DarkSurface,
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                        .padding(24.dp)
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = if (isAlarmSet) "Alarm Set For" else "No Alarm Set",
+                            fontSize = 20.sp,
+                            color = if (isAlarmSet) AlarmActiveGreen else TextSecondary
+                        )
+
+                        if (isAlarmSet) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = alarmTimeText,
+                                fontSize = 32.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                        }
+                    }
+                }
+
+                // Streaming app card
+                Box(
+                    modifier = Modifier
+                        .border(
+                            width = 2.dp,
+                            color = if (selectedAppName != null) AlarmTeal else DarkSurfaceVariant,
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                        .background(
+                            color = DarkSurface,
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                        .padding(24.dp)
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = if (selectedAppName != null) "Wake Up To" else "No App Selected",
+                            fontSize = 20.sp,
+                            color = if (selectedAppName != null) AlarmTeal else TextSecondary
+                        )
+
+                        if (selectedAppName != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = selectedAppName,
+                                fontSize = 32.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(36.dp))
 
             // Buttons row
             Row(
-                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                horizontalArrangement = Arrangement.spacedBy(20.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Set alarm button (schedules alarm 30 seconds from now for testing)
+                // Set alarm button
                 Button(
                     onClick = onSetAlarm,
                     modifier = Modifier.height(56.dp)
                 ) {
                     Text(
                         text = if (isAlarmSet) "Reset Alarm (30 sec)" else "Set Alarm (30 sec)",
-                        fontSize = 20.sp,
-                        modifier = Modifier.padding(horizontal = 16.dp)
+                        fontSize = 18.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp)
+                    )
+                }
+
+                // Pick streaming app button
+                Button(
+                    onClick = onPickStreamingApp,
+                    colors = ButtonDefaults.colors(
+                        containerColor = AlarmTeal
+                    ),
+                    modifier = Modifier.height(56.dp)
+                ) {
+                    Text(
+                        text = "Pick Streaming App",
+                        fontSize = 18.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp)
                     )
                 }
 
@@ -145,22 +202,12 @@ fun HomeScreen(
                     ) {
                         Text(
                             text = "Cancel Alarm",
-                            fontSize = 20.sp,
-                            modifier = Modifier.padding(horizontal = 16.dp)
+                            fontSize = 18.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp)
                         )
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Helper text
-            Text(
-                text = "Milestone 1: Press the button to set an alarm 30 seconds from now",
-                fontSize = 16.sp,
-                color = TextSecondary,
-                textAlign = TextAlign.Center
-            )
         }
     }
 }
