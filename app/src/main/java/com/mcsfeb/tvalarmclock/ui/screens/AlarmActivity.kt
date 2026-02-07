@@ -9,7 +9,6 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,8 +19,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.mcsfeb.tvalarmclock.ui.theme.AlarmFiringRed
-import com.mcsfeb.tvalarmclock.ui.theme.TVAlarmClockTheme
+import com.mcsfeb.tvalarmclock.data.model.LaunchMode
+import com.mcsfeb.tvalarmclock.data.model.StreamingApp
+import com.mcsfeb.tvalarmclock.player.StreamingLauncher
+import com.mcsfeb.tvalarmclock.ui.theme.*
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.*
@@ -29,25 +30,25 @@ import java.util.*
 /**
  * AlarmActivity - The full-screen alarm display.
  *
- * This is what you see when the alarm fires:
- * - Big flashing "ALARM!" text
- * - Current time display
- * - Instructions to dismiss (press any button on the remote)
+ * When the alarm fires:
+ * 1. Shows "ALARM!" with the current time and what content will play
+ * 2. Counts down from 10 seconds
+ * 3. Auto-launches the selected streaming app/content
+ * 4. Press any button to dismiss WITHOUT launching
  *
- * The screen turns on automatically because:
- * 1. AlarmReceiver already acquired a WakeLock
- * 2. This Activity has turnScreenOn=true in the manifest
- * 3. We also set FLAG_KEEP_SCREEN_ON so the TV stays on
+ * If no streaming content was selected, it just shows the alarm screen.
  */
 class AlarmActivity : ComponentActivity() {
+
+    private lateinit var streamingLauncher: StreamingLauncher
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Keep the screen on while the alarm is showing
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        streamingLauncher = StreamingLauncher(this)
 
-        // For older Android versions, also use these flags
+        // Keep the screen on
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
             @Suppress("DEPRECATION")
             window.addFlags(
@@ -59,10 +60,43 @@ class AlarmActivity : ComponentActivity() {
             setTurnScreenOn(true)
         }
 
+        // Read content info from the intent
+        val contentAppName = intent.getStringExtra("CONTENT_APP")
+        val contentId = intent.getStringExtra("CONTENT_ID") ?: ""
+        val contentTitle = intent.getStringExtra("CONTENT_TITLE") ?: ""
+        val contentMode = intent.getStringExtra("CONTENT_MODE") ?: "APP_ONLY"
+
+        val streamingApp = contentAppName?.let {
+            try { StreamingApp.valueOf(it) } catch (e: Exception) { null }
+        }
+
+        val launchMode = try {
+            LaunchMode.valueOf(contentMode)
+        } catch (e: Exception) { LaunchMode.APP_ONLY }
+
         setContent {
             TVAlarmClockTheme {
                 AlarmFiringScreen(
-                    onDismiss = { finish() }
+                    streamingApp = streamingApp,
+                    contentTitle = contentTitle,
+                    onDismiss = { finish() },
+                    onLaunchContent = {
+                        if (streamingApp != null) {
+                            when (launchMode) {
+                                LaunchMode.DEEP_LINK -> {
+                                    if (contentId.isNotEmpty()) {
+                                        streamingLauncher.launch(streamingApp, contentId)
+                                    } else {
+                                        streamingLauncher.launchAppOnly(streamingApp)
+                                    }
+                                }
+                                LaunchMode.APP_ONLY -> {
+                                    streamingLauncher.launchAppOnly(streamingApp)
+                                }
+                            }
+                            finish()
+                        }
+                    }
                 )
             }
         }
@@ -70,14 +104,16 @@ class AlarmActivity : ComponentActivity() {
 }
 
 /**
- * AlarmFiringScreen - The visual alarm display with flashing text.
- *
- * Shows a big red flashing "ALARM!" with the current time.
- * Press any key on the TV remote to dismiss.
+ * AlarmFiringScreen - The visual alarm display with countdown to content launch.
  */
 @Composable
-fun AlarmFiringScreen(onDismiss: () -> Unit) {
-    // Flashing animation - toggles between visible and dim every 500ms
+fun AlarmFiringScreen(
+    streamingApp: StreamingApp?,
+    contentTitle: String,
+    onDismiss: () -> Unit,
+    onLaunchContent: () -> Unit
+) {
+    // Flashing animation
     val infiniteTransition = rememberInfiniteTransition(label = "flash")
     val alpha by infiniteTransition.animateFloat(
         initialValue = 1f,
@@ -89,11 +125,22 @@ fun AlarmFiringScreen(onDismiss: () -> Unit) {
         label = "flashAlpha"
     )
 
-    // Current time, updates every second
+    // Current time
     var currentTime by remember { mutableStateOf(getCurrentTime()) }
+
+    // Countdown timer (10 seconds if content is set, otherwise no countdown)
+    var countdown by remember { mutableIntStateOf(if (streamingApp != null) 10 else -1) }
+    var dismissed by remember { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
         while (true) {
             currentTime = getCurrentTime()
+            if (countdown > 0 && !dismissed) {
+                countdown--
+            } else if (countdown == 0 && !dismissed) {
+                onLaunchContent()
+                countdown = -1
+            }
             delay(1000)
         }
     }
@@ -104,6 +151,7 @@ fun AlarmFiringScreen(onDismiss: () -> Unit) {
             .background(Color.Black)
             .onKeyEvent { keyEvent ->
                 if (keyEvent.type == KeyEventType.KeyDown) {
+                    dismissed = true
                     onDismiss()
                     true
                 } else false
@@ -118,37 +166,64 @@ fun AlarmFiringScreen(onDismiss: () -> Unit) {
             // Big flashing ALARM text
             Text(
                 text = "ALARM!",
-                fontSize = 120.sp,
+                fontSize = 100.sp,
                 fontWeight = FontWeight.Bold,
                 color = AlarmFiringRed.copy(alpha = alpha),
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             // Current time
             Text(
                 text = currentTime,
-                fontSize = 64.sp,
+                fontSize = 56.sp,
                 fontWeight = FontWeight.Light,
                 color = Color.White,
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(32.dp))
 
-            // Dismiss instruction
-            Text(
-                text = "Press any button to dismiss",
-                fontSize = 24.sp,
-                color = Color.Gray,
-                textAlign = TextAlign.Center
-            )
+            // What's about to launch
+            if (streamingApp != null && !dismissed) {
+                Text(
+                    text = "Opening in $countdown seconds...",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(streamingApp.colorHex),
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "${streamingApp.displayName}: $contentTitle",
+                    fontSize = 22.sp,
+                    color = Color.White.copy(alpha = 0.8f),
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text(
+                    text = "Press any button to cancel and dismiss",
+                    fontSize = 18.sp,
+                    color = Color.Gray,
+                    textAlign = TextAlign.Center
+                )
+            } else {
+                Text(
+                    text = "Press any button to dismiss",
+                    fontSize = 24.sp,
+                    color = Color.Gray,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
     }
 }
 
-/** Returns the current time formatted as "7:30 AM" */
 private fun getCurrentTime(): String {
     val formatter = SimpleDateFormat("h:mm a", Locale.getDefault())
     return formatter.format(Date())
