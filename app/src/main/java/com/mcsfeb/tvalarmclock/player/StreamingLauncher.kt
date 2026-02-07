@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import com.mcsfeb.tvalarmclock.data.model.StreamingApp
 
 /**
@@ -95,12 +96,24 @@ class StreamingLauncher(private val context: Context) {
 
     /**
      * Check if a specific package is installed.
+     * Uses the new API on Android 13+ and falls back to the old API on older versions.
      */
     fun isPackageInstalled(packageName: String): Boolean {
         return try {
-            context.packageManager.getPackageInfo(packageName, 0)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.packageManager.getPackageInfo(
+                    packageName,
+                    PackageManager.PackageInfoFlags.of(0)
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                context.packageManager.getPackageInfo(packageName, 0)
+            }
             true
         } catch (e: PackageManager.NameNotFoundException) {
+            false
+        } catch (e: Exception) {
+            // Catch any other unexpected exception
             false
         }
     }
