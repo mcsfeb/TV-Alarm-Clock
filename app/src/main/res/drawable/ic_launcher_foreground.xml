@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- App icon foreground - simple alarm clock shape -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Clock circle -->
+    <path
+        android:fillColor="#90CAF9"
+        android:pathData="M54,30 A24,24 0 1,1 53.99,30 Z" />
+    <!-- Clock hands -->
+    <path
+        android:strokeColor="#121212"
+        android:strokeWidth="2.5"
+        android:pathData="M54,54 L54,38" />
+    <path
+        android:strokeColor="#121212"
+        android:strokeWidth="2.5"
+        android:pathData="M54,54 L65,54" />
+    <!-- Alarm bells -->
+    <path
+        android:fillColor="#90CAF9"
+        android:pathData="M36,32 L42,38"
+        android:strokeColor="#90CAF9"
+        android:strokeWidth="3" />
+    <path
+        android:fillColor="#90CAF9"
+        android:pathData="M72,32 L66,38"
+        android:strokeColor="#90CAF9"
+        android:strokeWidth="3" />
+</vector>

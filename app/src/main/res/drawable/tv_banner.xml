@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- TV Banner (320x180dp) - Shown in the Android TV launcher -->
+<!-- This is a simple placeholder. Replace with a real image later. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Dark background -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#1E1E1E" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+    <!-- Blue accent bar at the top -->
+    <item android:top="0dp" android:bottom="156dp">
+        <shape android:shape="rectangle">
+            <solid android:color="#90CAF9" />
+            <corners android:topLeftRadius="8dp" android:topRightRadius="8dp" />
+        </shape>
+    </item>
+</layer-list>

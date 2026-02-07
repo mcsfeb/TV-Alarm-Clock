@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Schedule alarms at exact times (auto-granted for alarm clock apps) -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+
+    <!-- Turn the TV screen on when alarm fires -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Re-register alarms after device reboot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Fetch thumbnails and content metadata (future use) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- This is a TV app -->
+    <uses-feature
+        android:name="android.software.leanback"
+        android:required="true" />
+
+    <!-- TV has no touchscreen -->
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+
+    <application
+        android:allowBackup="true"
+        android:banner="@drawable/tv_banner"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.TVAlarmClock">
+
+        <!-- Main screen - appears in the Android TV launcher -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Alarm firing screen - full screen alarm display -->
+        <activity
+            android:name=".ui.screens.AlarmActivity"
+            android:exported="false"
+            android:turnScreenOn="true"
+            android:showWhenLocked="true" />
+
+        <!-- Fires when the alarm goes off -->
+        <receiver
+            android:name=".service.AlarmReceiver"
+            android:exported="false" />
+
+        <!-- Re-registers alarms after the TV reboots -->
+        <receiver
+            android:name=".service.BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+</manifest>
