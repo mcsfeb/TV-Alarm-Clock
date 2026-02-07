@@ -10,7 +10,20 @@
       "Bash(git -C \"C:/Users/Mcsfe/OneDrive/Desktop/TV Alarm Clock\" remote add origin https://github.com/mcsfeb/TV-Alarm-Clock.git)",
       "Bash(git -C \"C:/Users/Mcsfe/OneDrive/Desktop/TV Alarm Clock\" status)",
       "Bash(git -C \"C:/Users/Mcsfe/OneDrive/Desktop/TV Alarm Clock\" add .claude/settings.local.json)",
-      "Bash(git -C \"C:/Users/Mcsfe/OneDrive/Desktop/TV Alarm Clock\" -c user.name=\"mcsfeb\" -c user.email=\"mcsfeb@users.noreply.github.com\" commit -m \"$\\(cat <<''EOF''\nInitial commit\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git -C \"C:/Users/Mcsfe/OneDrive/Desktop/TV Alarm Clock\" -c user.name=\"mcsfeb\" -c user.email=\"mcsfeb@users.noreply.github.com\" commit -m \"$\\(cat <<''EOF''\nInitial commit\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C \"C:/Users/Mcsfe/OneDrive/Desktop/TV Alarm Clock\" push -u origin master)",
+      "Bash(where gh)",
+      "WebFetch(domain:community.home-assistant.io)",
+      "WebFetch(domain:source.android.com)",
+      "WebFetch(domain:developer.amazon.com)",
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:codematcher.com)",
+      "Bash(git add:*)",
+      "Bash(git -c user.name=\"mcsfeb\" -c user.email=\"mcsfeb@users.noreply.github.com\" commit -m \"$\\(cat <<''EOF''\nAdd CLAUDE.md project memory with architecture plan\n\nDocuments the full technical approach: deep linking strategy for\nstreaming apps, TV wake-up mechanism, alarm scheduling, playlist\nsystem, project structure, and first 3 milestones.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push)",
+      "Bash(git -c user.name=\"mcsfeb\" -c user.email=\"mcsfeb@users.noreply.github.com\" commit -m \"$\\(cat <<''EOF''\nMilestone 1: Skeleton Android TV app with alarm timer\n\nComplete working Android TV alarm clock skeleton:\n- MainActivity with live clock and Set Alarm button\n- AlarmScheduler using AlarmManager.setAlarmClock\\(\\) for reliable timing\n- AlarmReceiver with WakeLock to turn TV screen on\n- AlarmActivity with flashing \"ALARM!\" display\n- BootReceiver placeholder for re-registering alarms after reboot\n- Compose for TV UI with dark theme\n- TV banner and adaptive icon\n- All required permissions \\(USE_EXACT_ALARM, WAKE_LOCK, BOOT_COMPLETED\\)\n\nTest: Press \"Set Alarm\" -> alarm fires 30 seconds later -> screen shows ALARM!\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -c user.name=\"mcsfeb\" -c user.email=\"mcsfeb@users.noreply.github.com\" commit -m \"$\\(cat <<''EOF''\nFix settings.gradle.kts: dependencyResolution -> dependencyResolutionManagement\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -c user.name=\"mcsfeb\" -c user.email=\"mcsfeb@users.noreply.github.com\" commit -m \"$\\(cat <<''EOF''\nFix app icon: move adaptive icon to mipmap-anydpi-v26, use drawable fallback\n\nResource linking failed because the adaptive icon XML was in the wrong\nmipmap density folder. Moved to mipmap-anydpi-v26 and set manifest icon\nto use the drawable foreground directly as fallback.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }
