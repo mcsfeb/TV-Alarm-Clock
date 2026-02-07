@@ -24,22 +24,26 @@ import androidx.tv.material3.ButtonDefaults
 import com.mcsfeb.tvalarmclock.data.model.LaunchMode
 import com.mcsfeb.tvalarmclock.data.model.StreamingApp
 import com.mcsfeb.tvalarmclock.data.model.StreamingContent
-import com.mcsfeb.tvalarmclock.player.UrlParser
 import com.mcsfeb.tvalarmclock.ui.components.StreamingAppCard
 import com.mcsfeb.tvalarmclock.ui.theme.*
 
 /**
  * ContentPickerScreen - Where the user picks what to wake up to.
  *
- * Two ways to select content:
+ * Simple 2-step flow:
  *
- * 1. PASTE A URL: The user pastes a URL from their browser
- *    (e.g., "https://www.netflix.com/title/80057281")
- *    and we automatically detect the app and extract the content ID.
+ * STEP 1: Pick a streaming app from the scrollable card grid
+ *   - Installed apps are shown first in full color
+ *   - Uninstalled apps are dimmed but still selectable
  *
- * 2. JUST OPEN AN APP: For live TV services like Sling TV, or when
- *    the user just wants to resume whatever they were last watching.
- *    No URL needed — we just open the app at alarm time.
+ * STEP 2: Set up what to play (optional content details)
+ *   - The app ALWAYS opens at alarm time
+ *   - Optionally enter a content ID to go directly to a specific show/episode/channel
+ *   - If no content ID is entered, the app just opens to its home screen
+ *   - Test launch buttons to verify everything works before setting the alarm
+ *
+ * The idea is: this is TV automation. Pick an app, tell it what to play,
+ * and when the alarm fires it opens that app to that content automatically.
  */
 @Composable
 fun ContentPickerScreen(
@@ -50,11 +54,12 @@ fun ContentPickerScreen(
     onBack: () -> Unit,
     launchResultMessage: String?
 ) {
+    // Which app is selected (null = still choosing)
     var selectedApp by remember { mutableStateOf<StreamingApp?>(null) }
-    var urlInput by remember { mutableStateOf("") }
-    var parsedResult by remember { mutableStateOf<UrlParser.ParseResult?>(null) }
+
+    // Content details (step 2)
     var contentTitle by remember { mutableStateOf("") }
-    var selectedMode by remember { mutableStateOf("choose") }  // "choose", "url", "app_only"
+    var contentId by remember { mutableStateOf("") }
 
     Box(
         modifier = Modifier
@@ -66,331 +71,310 @@ fun ContentPickerScreen(
                 .fillMaxSize()
                 .padding(32.dp)
         ) {
-            // Header
+            // Header with back button
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = onBack, modifier = Modifier.height(48.dp)) {
-                    Text("← Back", fontSize = 16.sp)
+                Button(
+                    onClick = {
+                        if (selectedApp != null) {
+                            // Go back to app selection
+                            selectedApp = null
+                            contentTitle = ""
+                            contentId = ""
+                        } else {
+                            onBack()
+                        }
+                    },
+                    modifier = Modifier.height(48.dp)
+                ) {
+                    Text(
+                        text = if (selectedApp == null) "← Home" else "← Pick Different App",
+                        fontSize = 16.sp
+                    )
                 }
                 Spacer(modifier = Modifier.width(24.dp))
                 Text(
-                    text = "What Should the Alarm Play?",
+                    text = if (selectedApp == null)
+                        "Pick a Streaming App"
+                    else
+                        "Set Up ${selectedApp!!.displayName}",
                     fontSize = 32.sp,
                     fontWeight = FontWeight.Bold,
-                    color = AlarmBlue
+                    color = if (selectedApp != null) Color(selectedApp!!.colorHex) else AlarmBlue
                 )
             }
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            when (selectedMode) {
-                "choose" -> {
-                    // Mode selection
-                    Text(
-                        text = "Choose how to set your wake-up content:",
-                        fontSize = 18.sp,
-                        color = TextSecondary
-                    )
+            if (selectedApp == null) {
+                // ============================================================
+                // STEP 1: Pick an app
+                // ============================================================
+                Text(
+                    text = "Which app should the alarm open?",
+                    fontSize = 20.sp,
+                    color = TextSecondary
+                )
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                        // Option 1: Paste URL
-                        ModeCard(
-                            title = "Paste a Link",
-                            description = "Go to the show in your browser, copy the URL, and paste it here. We'll figure out the rest!",
-                            emoji = "🔗",
-                            color = AlarmBlue,
-                            onClick = { selectedMode = "url" }
-                        )
+                Text(
+                    text = "Installed apps are shown first. Select one to set it up.",
+                    fontSize = 14.sp,
+                    color = TextSecondary.copy(alpha = 0.6f)
+                )
 
-                        // Option 2: Just open an app
-                        ModeCard(
-                            title = "Just Open an App",
-                            description = "For live TV (Sling, Pluto) or to resume where you left off. We'll just open the app at alarm time.",
-                            emoji = "📺",
-                            color = AlarmTeal,
-                            onClick = { selectedMode = "app_only" }
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // App cards - installed first, then the rest
+                val sortedApps = remember(installedApps) {
+                    val installed = StreamingApp.allSorted().filter { installedApps.contains(it) }
+                    val notInstalled = StreamingApp.allSorted().filter { !installedApps.contains(it) }
+                    installed + notInstalled
+                }
+
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp)
+                ) {
+                    items(sortedApps) { app ->
+                        val isInstalled = installedApps.contains(app)
+                        StreamingAppCard(
+                            app = app,
+                            isInstalled = isInstalled,
+                            isSelected = false,
+                            onClick = {
+                                selectedApp = app
+                                contentTitle = ""
+                                contentId = ""
+                            }
                         )
                     }
                 }
 
-                "url" -> {
-                    // URL paste mode
-                    Text(
-                        text = "Paste a URL from any streaming service:",
-                        fontSize = 18.sp,
-                        color = TextSecondary
-                    )
+            } else {
+                // ============================================================
+                // STEP 2: Content details for the selected app
+                // ============================================================
+                val app = selectedApp!!
+                val isInstalled = installedApps.contains(app)
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // URL input field
-                    BasicTextField(
-                        value = urlInput,
-                        onValueChange = { newValue ->
-                            urlInput = newValue
-                            // Auto-parse as the user types
-                            parsedResult = UrlParser.parse(newValue)
-                        },
-                        textStyle = TextStyle(
-                            fontSize = 18.sp,
-                            color = TextPrimary
-                        ),
-                        cursorBrush = SolidColor(AlarmBlue),
+                // App badge + installed status
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .border(2.dp, AlarmBlue.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                            .background(DarkSurfaceVariant, RoundedCornerShape(8.dp))
-                            .padding(16.dp),
-                        decorationBox = { innerTextField ->
-                            if (urlInput.isEmpty()) {
-                                Text(
-                                    text = "e.g., https://www.netflix.com/title/80057281",
-                                    fontSize = 18.sp,
-                                    color = TextSecondary.copy(alpha = 0.5f)
-                                )
-                            }
-                            innerTextField()
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Quick test URLs
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Try:", fontSize = 14.sp, color = TextSecondary,
-                            modifier = Modifier.align(Alignment.CenterVertically))
-                        Button(
-                            onClick = {
-                                urlInput = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-                                parsedResult = UrlParser.parse(urlInput)
-                            },
-                            modifier = Modifier.height(36.dp)
-                        ) { Text("YouTube", fontSize = 12.sp) }
-                        Button(
-                            onClick = {
-                                urlInput = "https://www.netflix.com/title/80057281"
-                                parsedResult = UrlParser.parse(urlInput)
-                            },
-                            modifier = Modifier.height(36.dp)
-                        ) { Text("Netflix", fontSize = 12.sp) }
-                        Button(
-                            onClick = {
-                                urlInput = "https://www.hulu.com/watch/8c2b6d15-ecdb-4c15-a0d3-6c7d07b0f323"
-                                parsedResult = UrlParser.parse(urlInput)
-                            },
-                            modifier = Modifier.height(36.dp)
-                        ) { Text("Hulu", fontSize = 12.sp) }
+                            .size(40.dp)
+                            .background(Color(app.colorHex), RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = app.displayName.first().toString(),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp
+                        )
                     }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = app.displayName,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(app.colorHex)
+                        )
+                        Text(
+                            text = if (isInstalled) "Installed on this TV"
+                            else "Not installed on this TV",
+                            fontSize = 13.sp,
+                            color = if (isInstalled) AlarmActiveGreen
+                            else AlarmSnoozeOrange
+                        )
+                    }
+                }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                    // Show parsed result
-                    if (parsedResult != null) {
-                        val result = parsedResult!!
-                        Box(
+                // Content details form
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(
+                            2.dp,
+                            Color(app.colorHex).copy(alpha = 0.3f),
+                            RoundedCornerShape(12.dp)
+                        )
+                        .background(DarkSurface, RoundedCornerShape(12.dp))
+                        .padding(24.dp)
+                ) {
+                    Column {
+                        // Explanation
+                        Text(
+                            text = "The alarm will open ${app.displayName} automatically.",
+                            fontSize = 16.sp,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "Want it to go to specific content? Fill in the details below. " +
+                                    "Or just save now to open the app to its home screen.",
+                            fontSize = 14.sp,
+                            color = TextSecondary.copy(alpha = 0.7f)
+                        )
+
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        // Name field
+                        Text(
+                            text = "Name (so you remember what this is):",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        BasicTextField(
+                            value = contentTitle,
+                            onValueChange = { contentTitle = it },
+                            textStyle = TextStyle(fontSize = 18.sp, color = TextPrimary),
+                            cursorBrush = SolidColor(AlarmBlue),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .border(2.dp, Color(result.app.colorHex).copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                                .background(DarkSurface, RoundedCornerShape(12.dp))
-                                .padding(20.dp)
-                        ) {
-                            Column {
-                                Text(
-                                    text = "✓ Detected: ${result.app.displayName}",
-                                    fontSize = 22.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(result.app.colorHex)
+                                .border(
+                                    1.dp,
+                                    TextSecondary.copy(alpha = 0.3f),
+                                    RoundedCornerShape(8.dp)
                                 )
-                                if (result.contentId.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.height(4.dp))
+                                .background(DarkSurfaceVariant, RoundedCornerShape(8.dp))
+                                .padding(14.dp),
+                            decorationBox = { innerTextField ->
+                                if (contentTitle.isEmpty()) {
                                     Text(
-                                        text = "Content ID: ${result.contentId}",
-                                        fontSize = 16.sp,
-                                        color = TextSecondary
+                                        text = getContentNameHint(app),
+                                        fontSize = 18.sp,
+                                        color = TextSecondary.copy(alpha = 0.4f)
                                     )
                                 }
-
-                                Spacer(modifier = Modifier.height(12.dp))
-
-                                // Name this content
-                                Text("Give it a name (optional):", fontSize = 16.sp, color = TextSecondary)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                BasicTextField(
-                                    value = contentTitle,
-                                    onValueChange = { contentTitle = it },
-                                    textStyle = TextStyle(fontSize = 16.sp, color = TextPrimary),
-                                    cursorBrush = SolidColor(AlarmBlue),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .border(1.dp, TextSecondary.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                                        .background(DarkSurfaceVariant, RoundedCornerShape(8.dp))
-                                        .padding(12.dp),
-                                    decorationBox = { innerTextField ->
-                                        if (contentTitle.isEmpty()) {
-                                            Text(
-                                                text = "e.g., Stranger Things S2E1",
-                                                fontSize = 16.sp,
-                                                color = TextSecondary.copy(alpha = 0.5f)
-                                            )
-                                        }
-                                        innerTextField()
-                                    }
-                                )
-
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    // Save as alarm content
-                                    Button(
-                                        onClick = {
-                                            onContentSelected(
-                                                StreamingContent(
-                                                    app = result.app,
-                                                    contentId = result.contentId,
-                                                    title = contentTitle.ifEmpty { result.friendlyName },
-                                                    launchMode = LaunchMode.DEEP_LINK
-                                                )
-                                            )
-                                        },
-                                        modifier = Modifier.height(48.dp)
-                                    ) {
-                                        Text("Set as Alarm Content", fontSize = 16.sp,
-                                            modifier = Modifier.padding(horizontal = 8.dp))
-                                    }
-
-                                    // Test launch
-                                    if (result.contentId.isNotEmpty()) {
-                                        Button(
-                                            onClick = { onTestLaunch(result.app, result.contentId) },
-                                            colors = ButtonDefaults.colors(containerColor = Color(result.app.colorHex)),
-                                            modifier = Modifier.height(48.dp)
-                                        ) {
-                                            Text("Test Launch", fontSize = 16.sp,
-                                                modifier = Modifier.padding(horizontal = 8.dp))
-                                        }
-                                    }
-                                }
+                                innerTextField()
                             }
-                        }
-                    } else if (urlInput.isNotEmpty()) {
-                        Text(
-                            text = "Couldn't recognize that URL. Try a link from Netflix, YouTube, Hulu, Disney+, Prime Video, Max, Paramount+, Peacock, Crunchyroll, Tubi, or Pluto TV.",
-                            fontSize = 16.sp,
-                            color = AlarmSnoozeOrange
                         )
-                    }
 
-                    Spacer(modifier = Modifier.weight(1f))
+                        Spacer(modifier = Modifier.height(20.dp))
 
-                    Button(
-                        onClick = { selectedMode = "choose" },
-                        modifier = Modifier.height(44.dp)
-                    ) { Text("← Back to Options", fontSize = 14.sp) }
-                }
-
-                "app_only" -> {
-                    // App-only mode: just pick an app to open
-                    Text(
-                        text = "Pick an app to open when the alarm fires:",
-                        fontSize = 18.sp,
-                        color = TextSecondary
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp)
-                    ) {
-                        items(StreamingApp.allSorted()) { app ->
-                            val isInstalled = installedApps.contains(app)
-                            StreamingAppCard(
-                                app = app,
-                                isInstalled = isInstalled,
-                                isSelected = selectedApp == app,
-                                onClick = { selectedApp = app }
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    if (selectedApp != null) {
-                        val app = selectedApp!!
-                        val isInstalled = installedApps.contains(app)
-
-                        Box(
+                        // Content ID field
+                        Text(
+                            text = "${app.contentIdLabel} (optional):",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = app.description,
+                            fontSize = 13.sp,
+                            color = TextSecondary.copy(alpha = 0.7f)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = getContentIdTip(app),
+                            fontSize = 13.sp,
+                            color = AlarmTeal.copy(alpha = 0.8f)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        BasicTextField(
+                            value = contentId,
+                            onValueChange = { contentId = it },
+                            textStyle = TextStyle(fontSize = 18.sp, color = TextPrimary),
+                            cursorBrush = SolidColor(Color(app.colorHex)),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .border(2.dp, Color(app.colorHex).copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                                .background(DarkSurface, RoundedCornerShape(12.dp))
-                                .padding(20.dp)
-                        ) {
-                            Column {
-                                Text(
-                                    text = app.displayName,
-                                    fontSize = 24.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(app.colorHex)
+                                .border(
+                                    1.dp,
+                                    Color(app.colorHex).copy(alpha = 0.3f),
+                                    RoundedCornerShape(8.dp)
                                 )
-
-                                Spacer(modifier = Modifier.height(4.dp))
-
-                                Text(
-                                    text = if (isInstalled)
-                                        "At alarm time, we'll open ${app.displayName}. It will resume whatever you were last watching."
-                                    else
-                                        "⚠ ${app.displayName} is not installed on this TV.",
-                                    fontSize = 16.sp,
-                                    color = if (isInstalled) TextSecondary else AlarmSnoozeOrange
-                                )
-
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Button(
-                                        onClick = {
-                                            onContentSelected(
-                                                StreamingContent(
-                                                    app = app,
-                                                    contentId = "",
-                                                    title = "Open ${app.displayName}",
-                                                    launchMode = LaunchMode.APP_ONLY
-                                                )
-                                            )
-                                        },
-                                        modifier = Modifier.height(48.dp)
-                                    ) {
-                                        Text("Set as Alarm Content", fontSize = 16.sp,
-                                            modifier = Modifier.padding(horizontal = 8.dp))
-                                    }
-
-                                    Button(
-                                        onClick = { onTestLaunchAppOnly(app) },
-                                        colors = ButtonDefaults.colors(containerColor = Color(app.colorHex)),
-                                        modifier = Modifier.height(48.dp)
-                                    ) {
-                                        Text("Test Open", fontSize = 16.sp,
-                                            modifier = Modifier.padding(horizontal = 8.dp))
-                                    }
+                                .background(DarkSurfaceVariant, RoundedCornerShape(8.dp))
+                                .padding(14.dp),
+                            decorationBox = { innerTextField ->
+                                if (contentId.isEmpty()) {
+                                    Text(
+                                        text = getContentIdPlaceholder(app),
+                                        fontSize = 18.sp,
+                                        color = TextSecondary.copy(alpha = 0.4f)
+                                    )
                                 }
+                                innerTextField()
+                            }
+                        )
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        // Action buttons
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            // Save as alarm content
+                            Button(
+                                onClick = {
+                                    onContentSelected(
+                                        StreamingContent(
+                                            app = app,
+                                            contentId = contentId.trim(),
+                                            title = contentTitle.ifEmpty {
+                                                if (contentId.isNotBlank())
+                                                    "${app.displayName} Content"
+                                                else
+                                                    "Open ${app.displayName}"
+                                            },
+                                            launchMode = if (contentId.isNotBlank())
+                                                LaunchMode.DEEP_LINK
+                                            else
+                                                LaunchMode.APP_ONLY
+                                        )
+                                    )
+                                },
+                                modifier = Modifier.height(48.dp)
+                            ) {
+                                Text(
+                                    "Save as Alarm Content",
+                                    fontSize = 16.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp)
+                                )
+                            }
+
+                            // Test deep link (only if content ID is entered)
+                            if (contentId.isNotBlank()) {
+                                Button(
+                                    onClick = { onTestLaunch(app, contentId.trim()) },
+                                    colors = ButtonDefaults.colors(
+                                        containerColor = Color(app.colorHex)
+                                    ),
+                                    modifier = Modifier.height(48.dp)
+                                ) {
+                                    Text(
+                                        "Test Content Launch",
+                                        fontSize = 16.sp,
+                                        modifier = Modifier.padding(horizontal = 8.dp)
+                                    )
+                                }
+                            }
+
+                            // Test open app
+                            Button(
+                                onClick = { onTestLaunchAppOnly(app) },
+                                colors = ButtonDefaults.colors(
+                                    containerColor = Color(app.colorHex).copy(alpha = 0.7f)
+                                ),
+                                modifier = Modifier.height(48.dp)
+                            ) {
+                                Text(
+                                    "Test Open App",
+                                    fontSize = 16.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp)
+                                )
                             }
                         }
                     }
-
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    Button(
-                        onClick = { selectedMode = "choose" },
-                        modifier = Modifier.height(44.dp)
-                    ) { Text("← Back to Options", fontSize = 14.sp) }
                 }
             }
 
+            Spacer(modifier = Modifier.weight(1f))
+
             // Launch result message at the bottom
             if (launchResultMessage != null) {
-                Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     text = launchResultMessage,
                     fontSize = 16.sp,
@@ -404,55 +388,72 @@ fun ContentPickerScreen(
     }
 }
 
+// ---- Helper functions for app-specific hints ----
+
 /**
- * ModeCard - A big clickable card for choosing between URL paste and app-only modes.
+ * Get a placeholder example for the content name field based on the app.
  */
-@Composable
-fun ModeCard(
-    title: String,
-    description: String,
-    emoji: String,
-    color: Color,
-    onClick: () -> Unit
-) {
-    androidx.tv.material3.Surface(
-        onClick = onClick,
-        modifier = Modifier
-            .width(400.dp)
-            .height(200.dp),
-        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(
-            shape = RoundedCornerShape(16.dp)
-        ),
-        colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
-            containerColor = DarkSurface,
-            focusedContainerColor = DarkSurfaceVariant
-        ),
-        border = androidx.tv.material3.ClickableSurfaceDefaults.border(
-            focusedBorder = androidx.tv.material3.Border(
-                border = androidx.compose.foundation.BorderStroke(3.dp, color),
-                shape = RoundedCornerShape(16.dp)
-            )
-        ),
-        scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.05f)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(text = emoji, fontSize = 36.sp)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = title,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                color = color
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = description,
-                fontSize = 14.sp,
-                color = TextSecondary
-            )
-        }
+private fun getContentNameHint(app: StreamingApp): String {
+    return when (app) {
+        StreamingApp.NETFLIX -> "e.g., Stranger Things S2E1"
+        StreamingApp.YOUTUBE -> "e.g., Morning Jazz Mix"
+        StreamingApp.HULU -> "e.g., The Bear S1E1"
+        StreamingApp.DISNEY_PLUS -> "e.g., The Mandalorian S1E1"
+        StreamingApp.PRIME_VIDEO -> "e.g., The Boys S1E1"
+        StreamingApp.HBO_MAX -> "e.g., House of the Dragon S1E1"
+        StreamingApp.SLING_TV -> "e.g., CNN Live"
+        StreamingApp.YOUTUBE_TV -> "e.g., ESPN Live"
+        StreamingApp.PLUTO_TV -> "e.g., Comedy Central Channel"
+        StreamingApp.TUBI -> "e.g., Action Movie Night"
+        else -> "e.g., My Favorite Show"
+    }
+}
+
+/**
+ * Get a tip explaining where to find the content ID for each app.
+ */
+private fun getContentIdTip(app: StreamingApp): String {
+    return when (app) {
+        StreamingApp.NETFLIX ->
+            "Tip: Open the show on netflix.com in a browser. The number in the URL after /title/ is the ID."
+        StreamingApp.YOUTUBE ->
+            "Tip: The 11-character code after watch?v= in any YouTube link. Example: dQw4w9WgXcQ"
+        StreamingApp.HULU ->
+            "Tip: Open the episode on hulu.com. The long code after /watch/ is the episode ID."
+        StreamingApp.DISNEY_PLUS ->
+            "Tip: Open the content on disneyplus.com. The code after /video/ is the content ID."
+        StreamingApp.PRIME_VIDEO ->
+            "Tip: Open on amazon.com/video. The ASIN code is in the URL after /detail/."
+        StreamingApp.HBO_MAX ->
+            "Tip: Open on play.max.com. The ID is in the URL after /episode/ or /movie/."
+        StreamingApp.SLING_TV ->
+            "Tip: Enter a channel ID, or leave blank to just open Sling to your last channel."
+        StreamingApp.PLUTO_TV ->
+            "Tip: Visit pluto.tv and click a channel. The channel slug in the URL is the ID."
+        StreamingApp.YOUTUBE_TV ->
+            "Tip: Enter a channel ID or program ID from tv.youtube.com."
+        StreamingApp.CRUNCHYROLL ->
+            "Tip: Open the episode on crunchyroll.com. The code after /watch/ is the episode ID."
+        else ->
+            "Tip: Open the content in a browser and look for the ID in the URL."
+    }
+}
+
+/**
+ * Get a placeholder example for the content ID field based on the app.
+ */
+private fun getContentIdPlaceholder(app: StreamingApp): String {
+    return when (app) {
+        StreamingApp.NETFLIX -> "e.g., 80057281"
+        StreamingApp.YOUTUBE -> "e.g., dQw4w9WgXcQ"
+        StreamingApp.HULU -> "e.g., 8c2b6d15-ecdb-4c15-a0d3-6c7d07b0f323"
+        StreamingApp.DISNEY_PLUS -> "e.g., content-id-here"
+        StreamingApp.PRIME_VIDEO -> "e.g., B0B9HKS79J"
+        StreamingApp.HBO_MAX -> "e.g., episode-id-here"
+        StreamingApp.SLING_TV -> "e.g., channel-id (or leave blank)"
+        StreamingApp.PLUTO_TV -> "e.g., comedy-central"
+        StreamingApp.YOUTUBE_TV -> "e.g., channel-or-program-id"
+        StreamingApp.CRUNCHYROLL -> "e.g., GRDV0029R"
+        else -> "Content ID from the app's URL"
     }
 }
