@@ -13,6 +13,9 @@
     <!-- Fetch thumbnails and content metadata (future use) -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- See which streaming apps are installed (required on Android 11+) -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
     <!-- This is a TV app -->
     <uses-feature
         android:name="android.software.leanback"
