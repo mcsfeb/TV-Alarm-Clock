@@ -178,7 +178,8 @@ fun ContentPickerScreen(
             // ================================================================
             else if (browseMode == null) {
                 val app = selectedApp!!
-                val isLiveTv = ChannelGuide.isLiveTvApp(app)
+                // Show channel guide if this app has ANY channels in our guide
+                val hasChannels = ChannelGuide.getChannelsForApp(app).isNotEmpty()
 
                 Text(
                     "How do you want to find content?",
@@ -205,17 +206,17 @@ fun ContentPickerScreen(
                         }
                     )
 
-                    // Option: Channel guide (for live TV apps)
-                    if (isLiveTv) {
+                    // Option: Channel guide (shown if we have channels for this app)
+                    if (hasChannels) {
                         ModeCard(
                             title = "Pick a Channel",
-                            description = "Browse channels like ESPN, CNN, HGTV...",
+                            description = "Browse live channels like ESPN, CNN, HGTV...",
                             color = AlarmBlue,
                             onClick = { browseMode = BrowseMode.CHANNEL_GUIDE }
                         )
                     }
 
-                    // Option: Search for shows/movies
+                    // Option: Search for shows/movies (available for ALL apps)
                     ModeCard(
                         title = "Search Shows",
                         description = "Search for a show or movie by name.",
