@@ -25,7 +25,7 @@ object TmdbApi {
 
     // TMDB API v3 key (free tier, read-only access to public movie/TV data)
     // This key only provides read access to publicly available movie/show info
-    private const val API_KEY = "TMDB_API_KEY_PLACEHOLDER"
+    private const val API_KEY = "edb8fc7519ecffc0d801075e9e7c68ec"
     private const val BASE_URL = "https://api.themoviedb.org/3"
     const val IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w200"
 
