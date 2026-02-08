@@ -1,32 +1,129 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- App icon foreground - simple alarm clock shape -->
+<!-- TV Alarm Clock app icon foreground
+     A modern alarm clock with a play button in the center,
+     representing "wake up to streaming content" -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Clock circle -->
+
+    <!-- Left alarm bell -->
     <path
         android:fillColor="#90CAF9"
-        android:pathData="M54,30 A24,24 0 1,1 53.99,30 Z" />
-    <!-- Clock hands -->
+        android:pathData="M32,28 C32,28 28,24 26,26 C24,28 28,32 28,32 Z" />
     <path
-        android:strokeColor="#121212"
-        android:strokeWidth="2.5"
-        android:pathData="M54,54 L54,38" />
-    <path
-        android:strokeColor="#121212"
-        android:strokeWidth="2.5"
-        android:pathData="M54,54 L65,54" />
-    <!-- Alarm bells -->
-    <path
-        android:fillColor="#90CAF9"
-        android:pathData="M36,32 L42,38"
         android:strokeColor="#90CAF9"
-        android:strokeWidth="3" />
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M30,26 L36,33" />
+
+    <!-- Right alarm bell -->
     <path
         android:fillColor="#90CAF9"
-        android:pathData="M72,32 L66,38"
+        android:pathData="M76,28 C76,28 80,24 82,26 C84,28 80,32 80,32 Z" />
+    <path
         android:strokeColor="#90CAF9"
-        android:strokeWidth="3" />
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M78,26 L72,33" />
+
+    <!-- Clock body - outer ring -->
+    <path
+        android:fillColor="#90CAF9"
+        android:pathData="M54,30 A26,26 0 1,1 53.99,30 Z" />
+
+    <!-- Clock body - inner dark circle -->
+    <path
+        android:fillColor="#1A237E"
+        android:pathData="M54,33 A23,23 0 1,1 53.99,33 Z" />
+
+    <!-- Clock face - subtle ring -->
+    <path
+        android:fillColor="#0D47A1"
+        android:pathData="M54,34 A22,22 0 1,1 53.99,34 Z" />
+
+    <!-- Hour markers (12, 3, 6, 9 positions) -->
+    <path
+        android:strokeColor="#90CAF9"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M54,36 L54,39" />
+    <path
+        android:strokeColor="#90CAF9"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M54,73 L54,70" />
+    <path
+        android:strokeColor="#90CAF9"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M74,55 L71,55" />
+    <path
+        android:strokeColor="#90CAF9"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M34,55 L37,55" />
+
+    <!-- Small hour dots -->
+    <path
+        android:fillColor="#5D99C6"
+        android:pathData="M64,37.5 A1.2,1.2 0 1,1 63.99,37.5 Z" />
+    <path
+        android:fillColor="#5D99C6"
+        android:pathData="M72,45 A1.2,1.2 0 1,1 71.99,45 Z" />
+    <path
+        android:fillColor="#5D99C6"
+        android:pathData="M72,65 A1.2,1.2 0 1,1 71.99,65 Z" />
+    <path
+        android:fillColor="#5D99C6"
+        android:pathData="M64,72.5 A1.2,1.2 0 1,1 63.99,72.5 Z" />
+    <path
+        android:fillColor="#5D99C6"
+        android:pathData="M44,72.5 A1.2,1.2 0 1,1 43.99,72.5 Z" />
+    <path
+        android:fillColor="#5D99C6"
+        android:pathData="M36,65 A1.2,1.2 0 1,1 35.99,65 Z" />
+    <path
+        android:fillColor="#5D99C6"
+        android:pathData="M36,45 A1.2,1.2 0 1,1 35.99,45 Z" />
+    <path
+        android:fillColor="#5D99C6"
+        android:pathData="M44,37.5 A1.2,1.2 0 1,1 43.99,37.5 Z" />
+
+    <!-- Play button triangle (the "streaming" part) -->
+    <path
+        android:fillColor="#80CBC4"
+        android:pathData="M48,46 L48,64 L64,55 Z" />
+
+    <!-- Clock hands - hour hand pointing to ~7 -->
+    <path
+        android:strokeColor="#E0E0E0"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M54,55 L46,63" />
+
+    <!-- Clock hands - minute hand pointing to 12 -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M54,55 L54,40" />
+
+    <!-- Center dot -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,55 A2,2 0 1,1 53.99,55 Z" />
+
+    <!-- Bottom stand / legs -->
+    <path
+        android:strokeColor="#90CAF9"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M42,77 L38,82" />
+    <path
+        android:strokeColor="#90CAF9"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M66,77 L70,82" />
 </vector>

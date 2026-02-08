@@ -1,5 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="#121212" />
-</shape>
+<!-- App icon background - dark navy blue matching the app's dark theme -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Solid dark background -->
+    <path
+        android:fillColor="#0D1B2A"
+        android:pathData="M0,0 L108,0 L108,108 L0,108 Z" />
+
+    <!-- Subtle radial glow behind the clock -->
+    <path
+        android:fillColor="#1B2838"
+        android:pathData="M54,54 A36,36 0 1,1 53.99,54 Z" />
+</vector>

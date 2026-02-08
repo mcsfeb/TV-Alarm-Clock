@@ -1,19 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- TV Banner (320x180dp) - Shown in the Android TV launcher -->
-<!-- This is a simple placeholder. Replace with a real image later. -->
+<!-- TV Banner (320x180dp) - Shown in the Android TV launcher/home screen.
+     Dark navy with the app's blue accent color and branding. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Dark background -->
     <item>
         <shape android:shape="rectangle">
-            <solid android:color="#1E1E1E" />
+            <solid android:color="#0D1B2A" />
             <corners android:radius="8dp" />
         </shape>
     </item>
-    <!-- Blue accent bar at the top -->
-    <item android:top="0dp" android:bottom="156dp">
+    <!-- Blue accent bar at the bottom -->
+    <item android:top="164dp">
         <shape android:shape="rectangle">
             <solid android:color="#90CAF9" />
-            <corners android:topLeftRadius="8dp" android:topRightRadius="8dp" />
+            <corners android:bottomLeftRadius="8dp" android:bottomRightRadius="8dp" />
+        </shape>
+    </item>
+    <!-- Teal accent stripe -->
+    <item android:top="160dp" android:bottom="16dp">
+        <shape android:shape="rectangle">
+            <solid android:color="#80CBC4" />
         </shape>
     </item>
 </layer-list>

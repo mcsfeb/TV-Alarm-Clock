@@ -21,8 +21,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.Button
-import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import com.mcsfeb.tvalarmclock.data.model.*
@@ -89,7 +87,13 @@ fun ContentPickerScreen(
         ) {
             // ---- HEADER ----
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Button(
+                TVButton(
+                    text = when {
+                        selectedApp == null -> "Home"
+                        else -> "Back"
+                    },
+                    color = AlarmBlue,
+                    compact = true,
                     onClick = {
                         when {
                             selectedShow != null -> {
@@ -108,17 +112,8 @@ fun ContentPickerScreen(
                             }
                             else -> onBack()
                         }
-                    },
-                    modifier = Modifier.height(44.dp)
-                ) {
-                    Text(
-                        text = when {
-                            selectedApp == null -> "Home"
-                            else -> "Back"
-                        },
-                        fontSize = 15.sp
-                    )
-                }
+                    }
+                )
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(
                     text = when {
@@ -310,12 +305,12 @@ fun ContentPickerScreen(
                     }
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Button(
-                            onClick = { selectedCategory = null },
-                            modifier = Modifier.height(36.dp)
-                        ) {
-                            Text("All Categories", fontSize = 14.sp)
-                        }
+                        TVButton(
+                            text = "All Categories",
+                            color = AlarmBlue,
+                            compact = true,
+                            onClick = { selectedCategory = null }
+                        )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
                             selectedCategory!!.displayName,
@@ -381,18 +376,12 @@ fun ContentPickerScreen(
                         }
                     )
                     Spacer(modifier = Modifier.width(12.dp))
-                    Button(
-                        onClick = { isSearching = true },
-                        colors = ButtonDefaults.colors(containerColor = Color(app.colorHex)),
-                        modifier = Modifier.height(52.dp),
-                        enabled = searchQuery.isNotBlank() && !isSearching
-                    ) {
-                        Text(
-                            if (isSearching) "Searching..." else "Search",
-                            fontSize = 16.sp,
-                            modifier = Modifier.padding(horizontal = 8.dp)
-                        )
-                    }
+                    TVButton(
+                        text = if (isSearching) "Searching..." else "Search",
+                        color = Color(app.colorHex),
+                        enabled = searchQuery.isNotBlank() && !isSearching,
+                        onClick = { isSearching = true }
+                    )
                 }
 
                 // Perform search when triggered
@@ -647,7 +636,9 @@ fun ContentPickerScreen(
                         Spacer(modifier = Modifier.height(20.dp))
 
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Button(
+                            TVButton(
+                                text = "Save",
+                                color = AlarmActiveGreen,
                                 onClick = {
                                     onContentSelected(
                                         StreamingContent(
@@ -661,27 +652,20 @@ fun ContentPickerScreen(
                                                 LaunchMode.DEEP_LINK else LaunchMode.APP_ONLY
                                         )
                                     )
-                                },
-                                modifier = Modifier.height(48.dp)
-                            ) {
-                                Text("Save", fontSize = 16.sp, modifier = Modifier.padding(horizontal = 12.dp))
-                            }
-                            if (manualContentId.isNotBlank()) {
-                                Button(
-                                    onClick = { onTestLaunch(app, manualContentId.trim()) },
-                                    colors = ButtonDefaults.colors(containerColor = Color(app.colorHex)),
-                                    modifier = Modifier.height(48.dp)
-                                ) {
-                                    Text("Test Launch", fontSize = 16.sp, modifier = Modifier.padding(horizontal = 8.dp))
                                 }
+                            )
+                            if (manualContentId.isNotBlank()) {
+                                TVButton(
+                                    text = "Test Launch",
+                                    color = Color(app.colorHex),
+                                    onClick = { onTestLaunch(app, manualContentId.trim()) }
+                                )
                             }
-                            Button(
-                                onClick = { onTestLaunchAppOnly(app) },
-                                colors = ButtonDefaults.colors(containerColor = Color(app.colorHex).copy(alpha = 0.7f)),
-                                modifier = Modifier.height(48.dp)
-                            ) {
-                                Text("Test Open", fontSize = 16.sp, modifier = Modifier.padding(horizontal = 8.dp))
-                            }
+                            TVButton(
+                                text = "Test Open",
+                                color = Color(app.colorHex),
+                                onClick = { onTestLaunchAppOnly(app) }
+                            )
                         }
                     }
                 }

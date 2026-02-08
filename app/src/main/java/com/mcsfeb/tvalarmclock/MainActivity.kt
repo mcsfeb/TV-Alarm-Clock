@@ -11,18 +11,21 @@ import com.mcsfeb.tvalarmclock.data.model.StreamingContent
 import com.mcsfeb.tvalarmclock.player.LaunchResult
 import com.mcsfeb.tvalarmclock.player.StreamingLauncher
 import com.mcsfeb.tvalarmclock.service.AlarmScheduler
+import com.mcsfeb.tvalarmclock.ui.screens.AlarmItem
 import com.mcsfeb.tvalarmclock.ui.screens.ContentPickerScreen
 import com.mcsfeb.tvalarmclock.ui.screens.HomeScreen
 import com.mcsfeb.tvalarmclock.ui.theme.TVAlarmClockTheme
-import java.text.SimpleDateFormat
 import java.util.*
 
 /**
  * MainActivity - The entry point of the TV Alarm Clock app.
  *
  * Handles navigation between:
- * - HomeScreen: Main clock + alarm controls + streaming app status
+ * - HomeScreen: Main clock + alarm list + time picker + streaming app status
  * - ContentPickerScreen: Browse channels, search shows, or manual entry
+ *
+ * Supports MULTIPLE alarms - each gets its own AlarmManager entry with a unique ID.
+ * Also has a "Test Alarm" button that fires the alarm immediately for testing.
  *
  * The selected streaming content is saved to SharedPreferences so the
  * AlarmReceiver can read it and launch the right app at alarm time.
@@ -43,8 +46,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             TVAlarmClockTheme {
                 // App state
-                var isAlarmSet by remember { mutableStateOf(false) }
-                var alarmTimeText by remember { mutableStateOf("") }
+                var alarms by remember { mutableStateOf(loadAlarms()) }
                 var selectedContent by remember { mutableStateOf(loadSavedContent()) }
                 var launchResultMessage by remember { mutableStateOf<String?>(null) }
                 var currentScreen by remember { mutableStateOf("home") }
@@ -54,25 +56,48 @@ class MainActivity : ComponentActivity() {
                 when (currentScreen) {
                     "home" -> {
                         HomeScreen(
-                            onSetAlarm = {
-                                val triggerTime = System.currentTimeMillis() + 30_000
-                                alarmScheduler.schedule(triggerTime, alarmId = 0)
-
-                                val formatter = SimpleDateFormat("h:mm:ss a", Locale.getDefault())
-                                alarmTimeText = formatter.format(Date(triggerTime))
-                                isAlarmSet = true
+                            alarms = alarms,
+                            onAddAlarm = { hour, minute ->
+                                // Create a new alarm with a unique ID
+                                val newId = (alarms.maxOfOrNull { it.id } ?: 0) + 1
+                                val contentLabel = selectedContent?.let {
+                                    "${it.app.displayName}: ${it.title}"
+                                } ?: ""
+                                val newAlarm = AlarmItem(
+                                    id = newId,
+                                    hour = hour,
+                                    minute = minute,
+                                    isActive = true,
+                                    label = contentLabel
+                                )
+                                alarms = alarms + newAlarm
+                                saveAlarms(alarms)
+                                scheduleAlarm(newAlarm)
                             },
-                            onCancelAlarm = {
-                                alarmScheduler.cancel(alarmId = 0)
-                                isAlarmSet = false
-                                alarmTimeText = ""
+                            onDeleteAlarm = { alarm ->
+                                alarmScheduler.cancel(alarm.id)
+                                alarms = alarms.filter { it.id != alarm.id }
+                                saveAlarms(alarms)
+                            },
+                            onToggleAlarm = { alarm ->
+                                val updated = alarm.copy(isActive = !alarm.isActive)
+                                alarms = alarms.map { if (it.id == alarm.id) updated else it }
+                                saveAlarms(alarms)
+                                if (updated.isActive) {
+                                    scheduleAlarm(updated)
+                                } else {
+                                    alarmScheduler.cancel(alarm.id)
+                                }
+                            },
+                            onTestAlarm = {
+                                // Fire alarm immediately (2 seconds from now for reliability)
+                                val triggerTime = System.currentTimeMillis() + 2_000
+                                alarmScheduler.schedule(triggerTime, alarmId = 9999)
                             },
                             onPickStreamingApp = {
                                 launchResultMessage = null
                                 currentScreen = "content_picker"
                             },
-                            isAlarmSet = isAlarmSet,
-                            alarmTimeText = alarmTimeText,
                             selectedAppName = selectedContent?.let {
                                 "${it.app.displayName}: ${it.title}"
                             }
@@ -85,6 +110,10 @@ class MainActivity : ComponentActivity() {
                             onContentSelected = { content ->
                                 selectedContent = content
                                 saveContent(content)
+                                // Update labels on all existing alarms
+                                val label = "${content.app.displayName}: ${content.title}"
+                                alarms = alarms.map { it.copy(label = label) }
+                                saveAlarms(alarms)
                                 currentScreen = "home"
                             },
                             onTestLaunch = { app, contentId ->
@@ -102,6 +131,21 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /** Schedule an alarm using AlarmManager for the next occurrence of the given time */
+    private fun scheduleAlarm(alarm: AlarmItem) {
+        val cal = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, alarm.hour)
+            set(Calendar.MINUTE, alarm.minute)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            // If the time has already passed today, schedule for tomorrow
+            if (timeInMillis <= System.currentTimeMillis()) {
+                add(Calendar.DAY_OF_YEAR, 1)
+            }
+        }
+        alarmScheduler.schedule(cal.timeInMillis, alarmId = alarm.id)
     }
 
     /** Save selected content to SharedPreferences so AlarmReceiver can access it */
@@ -130,11 +174,46 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    /**
+     * Save the alarm list to SharedPreferences.
+     *
+     * Format: "id|hour|minute|active|label" for each alarm, separated by ";;".
+     * Simple and doesn't need Room database yet.
+     */
+    private fun saveAlarms(alarms: List<AlarmItem>) {
+        val encoded = alarms.joinToString(";;") { alarm ->
+            "${alarm.id}|${alarm.hour}|${alarm.minute}|${alarm.isActive}|${alarm.label}"
+        }
+        prefs.edit().putString("alarms_list", encoded).apply()
+    }
+
+    /** Load alarms from SharedPreferences */
+    private fun loadAlarms(): List<AlarmItem> {
+        val encoded = prefs.getString("alarms_list", null) ?: return emptyList()
+        if (encoded.isBlank()) return emptyList()
+        return try {
+            encoded.split(";;").mapNotNull { entry ->
+                val parts = entry.split("|")
+                if (parts.size >= 4) {
+                    AlarmItem(
+                        id = parts[0].toInt(),
+                        hour = parts[1].toInt(),
+                        minute = parts[2].toInt(),
+                        isActive = parts[3].toBoolean(),
+                        label = if (parts.size >= 5) parts[4] else ""
+                    )
+                } else null
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
     private fun formatResult(result: LaunchResult): String {
         return when (result) {
-            is LaunchResult.Success -> "✓ Launched ${result.appName}!"
-            is LaunchResult.AppNotInstalled -> "✗ ${result.appName} is not installed on this TV"
-            is LaunchResult.LaunchFailed -> "✗ Failed: ${result.error}"
+            is LaunchResult.Success -> "\u2713 Launched ${result.appName}!"
+            is LaunchResult.AppNotInstalled -> "\u2717 ${result.appName} is not installed on this TV"
+            is LaunchResult.LaunchFailed -> "\u2717 Failed: ${result.error}"
         }
     }
 }
