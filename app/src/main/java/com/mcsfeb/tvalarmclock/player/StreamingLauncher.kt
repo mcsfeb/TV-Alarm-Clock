@@ -18,17 +18,32 @@ import com.mcsfeb.tvalarmclock.data.model.StreamingApp
  * 2. Building the correct deep link intent for each app
  * 3. Launching the app with specific content, a search query, or just opening it
  * 4. Handling errors gracefully if the app isn't installed or the link fails
+ * 5. Auto-clicking past profile selection screens (via ProfileAutoSelector)
  *
  * THREE WAYS TO LAUNCH:
  * - launch(app, contentId) → Deep link to specific content (if you have the ID)
  * - launchWithSearch(app, showName) → Open the app and search for a show by name
  * - launchAppOnly(app) → Just open the app to its home screen
  *
+ * After launching, ProfileAutoSelector automatically sends simulated D-pad
+ * key presses to click past "Who's Watching?" profile screens. This way
+ * the alarm can fully auto-play content even when the user is asleep.
+ *
  * The "search" approach is the most reliable for getting to specific content
  * without needing proprietary content IDs. Most Android TV apps support
  * either the global SEARCH intent or their own search deep links.
  */
-class StreamingLauncher(private val context: Context) {
+class StreamingLauncher(
+    private val context: Context,
+    /**
+     * When true, automatically sends D-pad key presses after launch to click
+     * past profile selection screens ("Who's Watching?").
+     *
+     * Set to TRUE for alarm-triggered launches (user is asleep, needs full automation).
+     * Set to FALSE for test launches from ContentPicker (user is actively using the app).
+     */
+    private val autoProfileSelect: Boolean = false
+) {
 
     /**
      * Find which package name is actually installed for a streaming app.
@@ -56,6 +71,10 @@ class StreamingLauncher(private val context: Context) {
 
         return try {
             context.startActivity(intent)
+            // Auto-click past profile selection screen if this app has one
+            if (autoProfileSelect) {
+                ProfileAutoSelector.scheduleAutoSelect(installedPackage)
+            }
             LaunchResult.Success(app.displayName, deepLinkUrl)
         } catch (e: ActivityNotFoundException) {
             LaunchResult.LaunchFailed(app.displayName, "Activity not found: ${e.message}")
@@ -96,6 +115,10 @@ class StreamingLauncher(private val context: Context) {
                     intent.putExtra("source", "30")
                 }
                 context.startActivity(intent)
+                // Auto-click past profile selection screen
+                if (autoProfileSelect) {
+                    ProfileAutoSelector.scheduleAutoSelect(installedPackage)
+                }
                 return LaunchResult.Success(app.displayName, "search: $showName")
             } catch (e: Exception) {
                 // Fall through to next strategy
@@ -110,6 +133,10 @@ class StreamingLauncher(private val context: Context) {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             }
             context.startActivity(searchIntent)
+            // Auto-click past profile selection screen
+            if (autoProfileSelect) {
+                ProfileAutoSelector.scheduleAutoSelect(installedPackage)
+            }
             return LaunchResult.Success(app.displayName, "search: $showName")
         } catch (e: Exception) {
             // Fall through to next strategy
@@ -124,6 +151,10 @@ class StreamingLauncher(private val context: Context) {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(globalSearch)
+            // Auto-click past profile selection screen
+            if (autoProfileSelect) {
+                ProfileAutoSelector.scheduleAutoSelect(installedPackage)
+            }
             return LaunchResult.Success(app.displayName, "media search: $showName")
         } catch (e: Exception) {
             // Fall through to fallback
@@ -147,6 +178,10 @@ class StreamingLauncher(private val context: Context) {
             try {
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(launchIntent)
+                // Auto-click past profile selection screen
+                if (autoProfileSelect) {
+                    ProfileAutoSelector.scheduleAutoSelect(installedPackage)
+                }
                 LaunchResult.Success(app.displayName, "app launch (no specific content)")
             } catch (e: Exception) {
                 LaunchResult.LaunchFailed(app.displayName, e.message ?: "Unknown error")

@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mcsfeb.tvalarmclock.data.model.LaunchMode
 import com.mcsfeb.tvalarmclock.data.model.StreamingApp
+import com.mcsfeb.tvalarmclock.player.ProfileAutoSelector
 import com.mcsfeb.tvalarmclock.player.StreamingLauncher
 import com.mcsfeb.tvalarmclock.ui.theme.*
 import kotlinx.coroutines.delay
@@ -45,7 +46,10 @@ class AlarmActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        streamingLauncher = StreamingLauncher(this)
+        // Enable auto-profile-select for alarm launches
+        // This auto-clicks past "Who's Watching?" profile screens
+        // so the show starts playing even when the user is asleep
+        streamingLauncher = StreamingLauncher(this, autoProfileSelect = true)
 
         // Keep the screen on
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -80,7 +84,12 @@ class AlarmActivity : ComponentActivity() {
                 AlarmFiringScreen(
                     streamingApp = streamingApp,
                     contentTitle = contentTitle,
-                    onDismiss = { finish() },
+                    onDismiss = {
+                        // User pressed a button to dismiss - cancel any pending
+                        // auto-profile-select key presses since they're awake
+                        ProfileAutoSelector.cancelPending()
+                        finish()
+                    },
                     onLaunchContent = {
                         if (streamingApp != null) {
                             when (launchMode) {
