@@ -69,6 +69,8 @@ fun HomeScreen(
     onToggleAlarm: (AlarmItem) -> Unit,
     onTestAlarm: () -> Unit,
     onPickStreamingApp: () -> Unit,
+    onOpenAccessibilitySettings: () -> Unit,
+    isAccessibilityEnabled: Boolean,
     selectedAppName: String?
 ) {
     // Live clock that updates every second
@@ -178,6 +180,42 @@ fun HomeScreen(
                         color = AlarmSnoozeOrange,
                         onClick = onTestAlarm
                     )
+                }
+
+                // Accessibility service warning
+                if (!isAccessibilityEnabled) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.85f)
+                            .border(
+                                1.dp,
+                                AlarmSnoozeOrange.copy(alpha = 0.5f),
+                                RoundedCornerShape(12.dp)
+                            )
+                            .background(
+                                AlarmSnoozeOrange.copy(alpha = 0.1f),
+                                RoundedCornerShape(12.dp)
+                            )
+                            .padding(12.dp)
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                "Enable auto-profile-click to skip\n\"Who's Watching?\" screens",
+                                fontSize = 13.sp,
+                                color = AlarmSnoozeOrange,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            TVButton(
+                                text = "Open Accessibility Settings",
+                                color = AlarmSnoozeOrange,
+                                compact = true,
+                                onClick = onOpenAccessibilitySettings
+                            )
+                        }
+                    }
                 }
             }
 

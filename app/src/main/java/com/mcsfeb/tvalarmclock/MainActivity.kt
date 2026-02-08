@@ -1,7 +1,9 @@
 package com.mcsfeb.tvalarmclock
 
+import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.*
@@ -9,6 +11,7 @@ import com.mcsfeb.tvalarmclock.data.model.LaunchMode
 import com.mcsfeb.tvalarmclock.data.model.StreamingApp
 import com.mcsfeb.tvalarmclock.data.model.StreamingContent
 import com.mcsfeb.tvalarmclock.player.LaunchResult
+import com.mcsfeb.tvalarmclock.player.ProfileAutoSelector
 import com.mcsfeb.tvalarmclock.player.StreamingLauncher
 import com.mcsfeb.tvalarmclock.service.AlarmScheduler
 import com.mcsfeb.tvalarmclock.ui.screens.AlarmItem
@@ -98,6 +101,10 @@ class MainActivity : ComponentActivity() {
                                 launchResultMessage = null
                                 currentScreen = "content_picker"
                             },
+                            onOpenAccessibilitySettings = {
+                                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                            },
+                            isAccessibilityEnabled = ProfileAutoSelector.isServiceEnabled(),
                             selectedAppName = selectedContent?.let {
                                 "${it.app.displayName}: ${it.title}"
                             }

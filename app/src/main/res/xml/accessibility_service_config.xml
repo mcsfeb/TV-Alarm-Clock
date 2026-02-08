@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Configuration for AlarmAccessibilityService.
+     This service ONLY sends key events to click past profile screens.
+     It does NOT read or collect any data from other apps. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/accessibility_service_description"
+    android:accessibilityEventTypes="typeAllMask"
+    android:accessibilityFlags="flagDefault"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="false"
+    android:notificationTimeout="100"
+    android:settingsActivity="com.mcsfeb.tvalarmclock.MainActivity" />

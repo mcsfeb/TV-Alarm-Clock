@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">TV Alarm Clock</string>
+    <string name="accessibility_service_description">Allows TV Alarm Clock to automatically click past profile selection screens (like \"Who\'s Watching?\") when the alarm opens a streaming app. This service only sends remote control button presses — it does not read or collect any data.</string>
 </resources>

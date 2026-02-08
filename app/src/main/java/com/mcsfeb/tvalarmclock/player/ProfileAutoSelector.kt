@@ -3,7 +3,7 @@ package com.mcsfeb.tvalarmclock.player
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
-import java.io.IOException
+import com.mcsfeb.tvalarmclock.service.AlarmAccessibilityService
 
 /**
  * ProfileAutoSelector - Automatically clicks past profile selection screens.
@@ -18,21 +18,15 @@ import java.io.IOException
  * then send simulated D-pad key presses to click the first/default profile.
  *
  * HOW IT WORKS:
- * 1. We use Android's "input" shell command to simulate remote control presses
- * 2. First we send DPAD_CENTER to select the currently highlighted profile
- * 3. Some apps need an extra ENTER key press to confirm
- * 4. If the shell command fails (some devices block it), it fails silently -
- *    the app still opens, user just has to pick their profile manually
+ * Uses the AlarmAccessibilityService to inject key events. The accessibility
+ * service runs with elevated permissions that allow sending key presses to
+ * other apps. The user needs to enable it once in Settings > Accessibility.
  *
  * TIMING:
- * - Wait 4 seconds after launch for the app to load
- * - Send the first key press (select profile)
- * - Wait 2 more seconds for any confirmation dialog
- * - Send a second key press (confirm if needed)
- *
- * NOTE: This uses Runtime.exec("input keyevent ...") which works on most
- * Android TV devices. It does NOT require root. If a device blocks this
- * command, the auto-select simply won't work and the user picks manually.
+ * - Wait 5 seconds after launch for the app to load
+ * - Send DPAD_CENTER to select the currently highlighted profile
+ * - Wait 2 more seconds, send ENTER as backup confirmation
+ * - Wait 2 more seconds, send another DPAD_CENTER for secondary screens
  */
 object ProfileAutoSelector {
 
@@ -57,6 +51,11 @@ object ProfileAutoSelector {
     )
 
     /**
+     * Check if the accessibility service is enabled and ready.
+     */
+    fun isServiceEnabled(): Boolean = AlarmAccessibilityService.isRunning()
+
+    /**
      * Schedule auto-profile-select key presses after launching a streaming app.
      *
      * @param packageName The package name of the launched app
@@ -66,22 +65,25 @@ object ProfileAutoSelector {
         // Only auto-click for apps known to have profile screens
         if (packageName !in appsWithProfileScreens) return
 
+        // Need the accessibility service to be running
+        if (!isServiceEnabled()) return
+
         // Step 1: Wait for the app to load, then press DPAD_CENTER
         // This selects the first/default profile
         handler.postDelayed({
-            sendKeyEvent(KeyEvent.KEYCODE_DPAD_CENTER)
+            AlarmAccessibilityService.instance?.sendKey(KeyEvent.KEYCODE_DPAD_CENTER)
         }, initialDelayMs)
 
         // Step 2: Wait a bit more, then press ENTER as backup
         // Some apps need ENTER instead of DPAD_CENTER, or need a confirmation
         handler.postDelayed({
-            sendKeyEvent(KeyEvent.KEYCODE_ENTER)
+            AlarmAccessibilityService.instance?.sendKey(KeyEvent.KEYCODE_ENTER)
         }, initialDelayMs + 2000L)
 
         // Step 3: One more DPAD_CENTER after another delay
         // For apps that have a "Continue Watching" or other intermediary screen
         handler.postDelayed({
-            sendKeyEvent(KeyEvent.KEYCODE_DPAD_CENTER)
+            AlarmAccessibilityService.instance?.sendKey(KeyEvent.KEYCODE_DPAD_CENTER)
         }, initialDelayMs + 4000L)
     }
 
@@ -91,35 +93,5 @@ object ProfileAutoSelector {
      */
     fun cancelPending() {
         handler.removeCallbacksAndMessages(null)
-    }
-
-    /**
-     * Send a simulated key event using the Android "input" shell command.
-     *
-     * This works on most Android TV devices without root.
-     * The "input keyevent" command simulates a press on the TV remote.
-     *
-     * If the command fails (device blocks it), we just silently ignore it.
-     * The streaming app still opens - user just has to pick their profile.
-     */
-    private fun sendKeyEvent(keyCode: Int) {
-        try {
-            // Run on a background thread to avoid blocking the UI
-            Thread {
-                try {
-                    val process = Runtime.getRuntime().exec("input keyevent $keyCode")
-                    process.waitFor()
-                } catch (e: IOException) {
-                    // Shell command not available on this device - that's OK
-                    // The app still opened, user just picks profile manually
-                } catch (e: InterruptedException) {
-                    // Thread was interrupted - that's fine
-                } catch (e: Exception) {
-                    // Any other error - silently ignore
-                }
-            }.start()
-        } catch (e: Exception) {
-            // If we can't even start the thread, just skip it
-        }
     }
 }
