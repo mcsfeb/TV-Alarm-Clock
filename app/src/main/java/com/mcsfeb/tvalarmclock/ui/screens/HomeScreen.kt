@@ -74,10 +74,12 @@ fun HomeScreen(
     selectedAppName: String?
 ) {
     // Live clock that updates every second
-    var currentTime by remember { mutableStateOf(getCurrentTimeFormatted()) }
+    var currentTimeOnly by remember { mutableStateOf(getTimeOnly()) }
+    var currentAmPm by remember { mutableStateOf(getAmPm()) }
     LaunchedEffect(Unit) {
         while (true) {
-            currentTime = getCurrentTimeFormatted()
+            currentTimeOnly = getTimeOnly()
+            currentAmPm = getAmPm()
             delay(1000)
         }
     }
@@ -118,14 +120,26 @@ fun HomeScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Current time (big clock)
-                Text(
-                    text = currentTime,
-                    fontSize = 80.sp,
-                    fontWeight = FontWeight.Light,
-                    color = TextPrimary,
-                    textAlign = TextAlign.Center
-                )
+                // Current time (big clock) with AM/PM on the right
+                Row(
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = currentTimeOnly,
+                        fontSize = 80.sp,
+                        fontWeight = FontWeight.Light,
+                        color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = currentAmPm,
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = AlarmTeal,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(24.dp))
 
@@ -533,8 +547,14 @@ fun TVButton(
     }
 }
 
-/** Returns the current time formatted as "7:30:45 AM" */
-private fun getCurrentTimeFormatted(): String {
-    val formatter = SimpleDateFormat("h:mm:ss a", Locale.getDefault())
+/** Returns just the time part like "7:30:45" */
+private fun getTimeOnly(): String {
+    val formatter = SimpleDateFormat("h:mm:ss", Locale.getDefault())
+    return formatter.format(Date())
+}
+
+/** Returns just "AM" or "PM" */
+private fun getAmPm(): String {
+    val formatter = SimpleDateFormat("a", Locale.getDefault())
     return formatter.format(Date())
 }
