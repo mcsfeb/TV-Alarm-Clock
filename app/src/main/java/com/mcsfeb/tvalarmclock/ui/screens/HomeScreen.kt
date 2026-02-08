@@ -230,7 +230,7 @@ fun HomeScreen(
                             // Hour / Minute / AM-PM selectors
                             Row(
                                 horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically,
+                                verticalAlignment = Alignment.Bottom,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 // Hour
@@ -289,28 +289,17 @@ fun HomeScreen(
                                     )
                                 }
 
-                                Spacer(modifier = Modifier.width(20.dp))
+                                Spacer(modifier = Modifier.width(24.dp))
 
-                                // AM/PM
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                // AM/PM - sits to the right, aligned to the bottom
+                                // so it lines up next to the numbers, not in the middle
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.padding(bottom = 4.dp)
+                                ) {
                                     TVButton(
-                                        text = "\u25B2",
-                                        color = AlarmBlue,
-                                        compact = true,
-                                        onClick = { pickerAmPm = if (pickerAmPm == "AM") "PM" else "AM" }
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
                                         text = pickerAmPm,
-                                        fontSize = 36.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = AlarmBlue
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    TVButton(
-                                        text = "\u25BC",
-                                        color = AlarmBlue,
-                                        compact = true,
+                                        color = if (pickerAmPm == "AM") AlarmBlue else AlarmTeal,
                                         onClick = { pickerAmPm = if (pickerAmPm == "AM") "PM" else "AM" }
                                     )
                                 }
