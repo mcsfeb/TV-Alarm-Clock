@@ -1,28 +1,32 @@
 package com.mcsfeb.tvalarmclock.player
 
+import android.app.SearchManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.MediaStore
 import com.mcsfeb.tvalarmclock.data.model.StreamingApp
 
 /**
  * StreamingLauncher - The engine that deep-links into streaming apps.
  *
  * This class handles:
- * 1. Checking if a streaming app is installed on the TV (including alternate package names)
+ * 1. Checking if a streaming app is installed on the TV
  * 2. Building the correct deep link intent for each app
- * 3. Launching the app with the right content ID
+ * 3. Launching the app with specific content, a search query, or just opening it
  * 4. Handling errors gracefully if the app isn't installed or the link fails
  *
- * Many streaming apps have DIFFERENT package names depending on the device:
- * - YouTube mobile: com.google.android.youtube
- * - YouTube on Android TV: com.google.android.youtube.tv
- * - HBO was com.hbo.hbonow, then com.hbo.max.android.tv, now com.wbd.stream
+ * THREE WAYS TO LAUNCH:
+ * - launch(app, contentId) → Deep link to specific content (if you have the ID)
+ * - launchWithSearch(app, showName) → Open the app and search for a show by name
+ * - launchAppOnly(app) → Just open the app to its home screen
  *
- * We check the primary package AND all alternates to find what's actually installed.
+ * The "search" approach is the most reliable for getting to specific content
+ * without needing proprietary content IDs. Most Android TV apps support
+ * either the global SEARCH intent or their own search deep links.
  */
 class StreamingLauncher(private val context: Context) {
 
@@ -32,19 +36,16 @@ class StreamingLauncher(private val context: Context) {
      * Returns null if none are installed.
      */
     fun findInstalledPackage(app: StreamingApp): String? {
-        // Check primary package first
         if (isPackageInstalled(app.packageName)) return app.packageName
-
-        // Check alternate package names
         for (altPackage in app.altPackageNames) {
             if (isPackageInstalled(altPackage)) return altPackage
         }
-
         return null
     }
 
     /**
-     * Launch a streaming app to specific content.
+     * Launch a streaming app to specific content using a deep link ID.
+     * Use this when you have the app's internal content ID.
      */
     fun launch(app: StreamingApp, contentId: String): LaunchResult {
         val installedPackage = findInstalledPackage(app)
@@ -61,6 +62,75 @@ class StreamingLauncher(private val context: Context) {
         } catch (e: Exception) {
             LaunchResult.LaunchFailed(app.displayName, "Unexpected error: ${e.message}")
         }
+    }
+
+    /**
+     * Launch a streaming app and search for a show/movie by name.
+     *
+     * This is the BEST way to get to specific content because:
+     * - No proprietary content IDs needed
+     * - Works for any show available on the platform
+     * - Opens the app directly to the show's page (usually)
+     *
+     * Strategy per app:
+     * 1. Try app-specific search deep link (most reliable)
+     * 2. Fall back to Android's global SEARCH intent targeted at the app
+     * 3. Final fallback: just open the app
+     */
+    fun launchWithSearch(app: StreamingApp, showName: String): LaunchResult {
+        val installedPackage = findInstalledPackage(app)
+            ?: return LaunchResult.AppNotInstalled(app.displayName)
+
+        // First try: App-specific search deep link
+        val searchUrl = getSearchDeepLink(app, showName)
+        if (searchUrl != null) {
+            try {
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    data = Uri.parse(searchUrl)
+                    setPackage(installedPackage)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                }
+                // Netflix needs special handling
+                if (app == StreamingApp.NETFLIX) {
+                    intent.setClassName("com.netflix.ninja", "com.netflix.ninja.MainActivity")
+                    intent.putExtra("source", "30")
+                }
+                context.startActivity(intent)
+                return LaunchResult.Success(app.displayName, "search: $showName")
+            } catch (e: Exception) {
+                // Fall through to next strategy
+            }
+        }
+
+        // Second try: Android's built-in SEARCH intent targeted at the app
+        try {
+            val searchIntent = Intent(Intent.ACTION_SEARCH).apply {
+                setPackage(installedPackage)
+                putExtra(SearchManager.QUERY, showName)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            }
+            context.startActivity(searchIntent)
+            return LaunchResult.Success(app.displayName, "search: $showName")
+        } catch (e: Exception) {
+            // Fall through to next strategy
+        }
+
+        // Third try: Global content search (Android TV's built-in search system)
+        try {
+            val globalSearch = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
+                putExtra(SearchManager.QUERY, showName)
+                putExtra("android.intent.extra.FOCUS", "vnd.android.cursor.item/video")
+                setPackage(installedPackage)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(globalSearch)
+            return LaunchResult.Success(app.displayName, "media search: $showName")
+        } catch (e: Exception) {
+            // Fall through to fallback
+        }
+
+        // Final fallback: just open the app
+        return launchAppOnly(app)
     }
 
     /**
@@ -88,7 +158,6 @@ class StreamingLauncher(private val context: Context) {
 
     /**
      * Check which streaming apps are installed on this TV.
-     * Checks both primary and alternate package names for each app.
      */
     fun getInstalledApps(): List<StreamingApp> {
         return StreamingApp.entries.filter { findInstalledPackage(it) != null }
@@ -96,7 +165,6 @@ class StreamingLauncher(private val context: Context) {
 
     /**
      * Check if a specific package is installed.
-     * Uses the new API on Android 13+ and falls back to the old API on older versions.
      */
     fun isPackageInstalled(packageName: String): Boolean {
         return try {
@@ -113,14 +181,56 @@ class StreamingLauncher(private val context: Context) {
         } catch (e: PackageManager.NameNotFoundException) {
             false
         } catch (e: Exception) {
-            // Catch any other unexpected exception
             false
         }
     }
 
     /**
+     * Get app-specific search deep link URL.
+     *
+     * Many streaming apps support search via URL deep links.
+     * This is MORE RELIABLE than the generic Android SEARCH intent
+     * because each app handles their own URL scheme.
+     */
+    private fun getSearchDeepLink(app: StreamingApp, query: String): String? {
+        val encoded = Uri.encode(query)
+        return when (app) {
+            StreamingApp.NETFLIX ->
+                "https://www.netflix.com/search?q=$encoded"
+            StreamingApp.HBO_MAX ->
+                "https://play.max.com/search?q=$encoded"
+            StreamingApp.HULU ->
+                "https://www.hulu.com/search?q=$encoded"
+            StreamingApp.DISNEY_PLUS ->
+                "https://www.disneyplus.com/search?q=$encoded"
+            StreamingApp.PRIME_VIDEO ->
+                "https://app.primevideo.com/search?phrase=$encoded"
+            StreamingApp.YOUTUBE ->
+                "https://www.youtube.com/results?search_query=$encoded"
+            StreamingApp.PARAMOUNT_PLUS ->
+                "https://www.paramountplus.com/search/?q=$encoded"
+            StreamingApp.PEACOCK ->
+                "https://www.peacocktv.com/search?query=$encoded"
+            StreamingApp.CRUNCHYROLL ->
+                "https://www.crunchyroll.com/search?q=$encoded"
+            StreamingApp.TUBI ->
+                "https://tubitv.com/search/$encoded"
+            StreamingApp.APPLE_TV ->
+                "https://tv.apple.com/search?term=$encoded"
+            StreamingApp.DISCOVERY_PLUS ->
+                "https://www.discoveryplus.com/search?q=$encoded"
+            // Live TV apps don't really have search deep links
+            StreamingApp.SLING_TV -> null
+            StreamingApp.YOUTUBE_TV -> null
+            StreamingApp.FUBO_TV -> null
+            StreamingApp.PLUTO_TV -> null
+            StreamingApp.PLEX -> null
+            StreamingApp.STARZ -> null
+        }
+    }
+
+    /**
      * Build the intent with app-specific quirks and extras.
-     * Uses the actual installed package name (which may be an alternate).
      */
     private fun buildIntent(app: StreamingApp, deepLinkUrl: String, installedPackage: String): Intent {
         val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -128,19 +238,15 @@ class StreamingLauncher(private val context: Context) {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
 
-        // App-specific customizations
         when (app) {
             StreamingApp.NETFLIX -> {
                 intent.setClassName("com.netflix.ninja", "com.netflix.ninja.MainActivity")
                 intent.putExtra("source", "30")
             }
-
             StreamingApp.YOUTUBE -> {
                 intent.setPackage(installedPackage)
             }
-
             StreamingApp.HULU -> {
-                // Try the specific activity, fall back to just package
                 try {
                     intent.setClassName(
                         "com.hulu.livingroomplus",
@@ -150,17 +256,12 @@ class StreamingLauncher(private val context: Context) {
                     intent.setPackage(installedPackage)
                 }
             }
-
             StreamingApp.HBO_MAX -> {
-                // HBO has changed package names multiple times, use whatever is installed
                 intent.setPackage(installedPackage)
             }
-
             StreamingApp.YOUTUBE_TV -> {
                 intent.setPackage(installedPackage)
             }
-
-            // All other apps: just set the installed package name
             else -> {
                 intent.setPackage(installedPackage)
             }
@@ -174,12 +275,7 @@ class StreamingLauncher(private val context: Context) {
  * LaunchResult - What happened when we tried to open a streaming app.
  */
 sealed class LaunchResult {
-    /** The app launched successfully */
     data class Success(val appName: String, val deepLink: String) : LaunchResult()
-
-    /** The streaming app isn't installed on this TV */
     data class AppNotInstalled(val appName: String) : LaunchResult()
-
-    /** The app is installed but the launch failed */
     data class LaunchFailed(val appName: String, val error: String) : LaunchResult()
 }

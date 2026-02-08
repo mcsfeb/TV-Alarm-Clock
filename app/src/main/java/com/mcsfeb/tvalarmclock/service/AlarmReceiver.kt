@@ -40,6 +40,7 @@ class AlarmReceiver : BroadcastReceiver() {
         val contentId = prefs.getString("content_id", "") ?: ""
         val contentTitle = prefs.getString("content_title", "") ?: ""
         val contentMode = prefs.getString("content_mode", "APP_ONLY") ?: "APP_ONLY"
+        val contentSearchQuery = prefs.getString("content_search_query", "") ?: ""
 
         // Step 3: Launch the alarm screen with content info
         val alarmId = intent.getIntExtra("ALARM_ID", 0)
@@ -51,6 +52,7 @@ class AlarmReceiver : BroadcastReceiver() {
             putExtra("CONTENT_ID", contentId)
             putExtra("CONTENT_TITLE", contentTitle)
             putExtra("CONTENT_MODE", contentMode)
+            putExtra("CONTENT_SEARCH_QUERY", contentSearchQuery)
         }
         context.startActivity(alarmIntent)
     }

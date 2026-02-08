@@ -22,7 +22,7 @@ import java.util.*
  *
  * Handles navigation between:
  * - HomeScreen: Main clock + alarm controls + streaming app status
- * - ContentPickerScreen: Two modes - paste a URL or just pick an app
+ * - ContentPickerScreen: Browse channels, search shows, or manual entry
  *
  * The selected streaming content is saved to SharedPreferences so the
  * AlarmReceiver can read it and launch the right app at alarm time.
@@ -111,6 +111,7 @@ class MainActivity : ComponentActivity() {
             .putString("content_id", content.contentId)
             .putString("content_title", content.title)
             .putString("content_mode", content.launchMode.name)
+            .putString("content_search_query", content.searchQuery)
             .apply()
     }
 
@@ -124,7 +125,8 @@ class MainActivity : ComponentActivity() {
             title = prefs.getString("content_title", "") ?: "",
             launchMode = try {
                 LaunchMode.valueOf(prefs.getString("content_mode", "APP_ONLY") ?: "APP_ONLY")
-            } catch (e: Exception) { LaunchMode.APP_ONLY }
+            } catch (e: Exception) { LaunchMode.APP_ONLY },
+            searchQuery = prefs.getString("content_search_query", "") ?: ""
         )
     }
 

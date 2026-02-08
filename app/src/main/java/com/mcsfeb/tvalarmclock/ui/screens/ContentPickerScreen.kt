@@ -426,7 +426,7 @@ fun ContentPickerScreen(
                                 app = app,
                                 onClick = {
                                     if (content.mediaType == MediaType.MOVIE) {
-                                        // For movies, try to get content ID directly
+                                        // For movies, use search to open the movie
                                         val contentId = ContentIdMapper.getContentId(
                                             content.tmdbId, app
                                         ) ?: ""
@@ -436,7 +436,8 @@ fun ContentPickerScreen(
                                                 contentId = contentId,
                                                 title = "${content.title} (${content.year})",
                                                 launchMode = if (contentId.isNotBlank())
-                                                    LaunchMode.DEEP_LINK else LaunchMode.APP_ONLY
+                                                    LaunchMode.DEEP_LINK else LaunchMode.SEARCH,
+                                                searchQuery = content.title
                                             )
                                         )
                                     } else {
@@ -561,7 +562,8 @@ fun ContentPickerScreen(
                                                 contentId = contentId,
                                                 title = title,
                                                 launchMode = if (contentId.isNotBlank())
-                                                    LaunchMode.DEEP_LINK else LaunchMode.APP_ONLY
+                                                    LaunchMode.DEEP_LINK else LaunchMode.SEARCH,
+                                                searchQuery = show.title
                                             )
                                         )
                                     }

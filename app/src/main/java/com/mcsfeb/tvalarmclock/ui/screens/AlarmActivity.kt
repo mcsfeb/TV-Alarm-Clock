@@ -65,6 +65,7 @@ class AlarmActivity : ComponentActivity() {
         val contentId = intent.getStringExtra("CONTENT_ID") ?: ""
         val contentTitle = intent.getStringExtra("CONTENT_TITLE") ?: ""
         val contentMode = intent.getStringExtra("CONTENT_MODE") ?: "APP_ONLY"
+        val searchQuery = intent.getStringExtra("CONTENT_SEARCH_QUERY") ?: ""
 
         val streamingApp = contentAppName?.let {
             try { StreamingApp.valueOf(it) } catch (e: Exception) { null }
@@ -86,6 +87,13 @@ class AlarmActivity : ComponentActivity() {
                                 LaunchMode.DEEP_LINK -> {
                                     if (contentId.isNotEmpty()) {
                                         streamingLauncher.launch(streamingApp, contentId)
+                                    } else {
+                                        streamingLauncher.launchAppOnly(streamingApp)
+                                    }
+                                }
+                                LaunchMode.SEARCH -> {
+                                    if (searchQuery.isNotEmpty()) {
+                                        streamingLauncher.launchWithSearch(streamingApp, searchQuery)
                                     } else {
                                         streamingLauncher.launchAppOnly(streamingApp)
                                     }
