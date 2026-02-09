@@ -23,6 +23,7 @@ import com.mcsfeb.tvalarmclock.data.model.LaunchMode
 import com.mcsfeb.tvalarmclock.data.model.StreamingApp
 import com.mcsfeb.tvalarmclock.player.ProfileAutoSelector
 import com.mcsfeb.tvalarmclock.player.StreamingLauncher
+import com.mcsfeb.tvalarmclock.service.WakeUpHelper
 import com.mcsfeb.tvalarmclock.ui.theme.*
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -88,6 +89,7 @@ class AlarmActivity : ComponentActivity() {
                         // User pressed a button to dismiss - cancel any pending
                         // auto-profile-select key presses since they're awake
                         ProfileAutoSelector.cancelPending()
+                        WakeUpHelper.releaseWakeLock()
                         finish()
                     },
                     onLaunchContent = {

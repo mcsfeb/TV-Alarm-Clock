@@ -26,7 +26,7 @@ import androidx.tv.material3.Surface
 import com.mcsfeb.tvalarmclock.data.model.*
 import com.mcsfeb.tvalarmclock.data.remote.ContentIdMapper
 import com.mcsfeb.tvalarmclock.data.remote.TmdbApi
-import com.mcsfeb.tvalarmclock.ui.components.StreamingAppCard
+import com.mcsfeb.tvalarmclock.ui.components.*
 import com.mcsfeb.tvalarmclock.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -37,13 +37,9 @@ import kotlinx.coroutines.withContext
  * FLOW:
  * 1. Pick a streaming app
  * 2. Based on the app type:
- *    - LIVE TV app (Sling, YouTube TV, etc.): Browse channel guide
- *    - ON-DEMAND app (Netflix, Hulu, etc.): Search for shows/movies
+ *    - LIVE TV app: Browse channel guide
+ *    - ON-DEMAND app: Search for shows/movies
  *    - Either: "Just open the app" option always available
- *
- * For live TV: User picks a channel from the built-in guide (ESPN, CNN, etc.)
- * For on-demand: User searches for a show, picks season & episode
- * The app figures out the content ID automatically — no manual entry needed.
  */
 @Composable
 fun ContentPickerScreen(
@@ -169,22 +165,16 @@ fun ContentPickerScreen(
                 }
             }
             // ================================================================
-            // STEP 2: Choose browse mode for the selected app
+            // STEP 2: Choose browse mode
             // ================================================================
             else if (browseMode == null) {
                 val app = selectedApp!!
-                // Show channel guide if this app has ANY channels in our guide
                 val hasChannels = ChannelGuide.getChannelsForApp(app).isNotEmpty()
 
-                Text(
-                    "How do you want to find content?",
-                    fontSize = 18.sp,
-                    color = TextSecondary
-                )
+                Text("How do you want to find content?", fontSize = 18.sp, color = TextSecondary)
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    // Option: Just open the app
                     ModeCard(
                         title = "Just Open App",
                         description = "Opens ${app.displayName} to its home screen.",
@@ -201,7 +191,6 @@ fun ContentPickerScreen(
                         }
                     )
 
-                    // Option: Channel guide (shown if we have channels for this app)
                     if (hasChannels) {
                         ModeCard(
                             title = "Pick a Channel",
@@ -211,7 +200,6 @@ fun ContentPickerScreen(
                         )
                     }
 
-                    // Option: Search for shows/movies (available for ALL apps)
                     ModeCard(
                         title = "Search Shows",
                         description = "Search for a show or movie by name.",
@@ -219,7 +207,6 @@ fun ContentPickerScreen(
                         onClick = { browseMode = BrowseMode.SEARCH }
                     )
 
-                    // Option: Manual ID entry (fallback)
                     ModeCard(
                         title = "Enter ID Manually",
                         description = "If you already know the content ID.",
@@ -229,14 +216,13 @@ fun ContentPickerScreen(
                 }
             }
             // ================================================================
-            // CHANNEL GUIDE (for live TV apps)
+            // CHANNEL GUIDE
             // ================================================================
             else if (browseMode == BrowseMode.CHANNEL_GUIDE) {
                 val app = selectedApp!!
                 val categories = remember(app) { ChannelGuide.getCategoriesForApp(app) }
 
                 if (selectedCategory == null) {
-                    // Show category buttons
                     Text("Pick a category:", fontSize = 18.sp, color = TextSecondary)
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -277,7 +263,6 @@ fun ContentPickerScreen(
 
                     Spacer(modifier = Modifier.height(20.dp))
 
-                    // Show all channels below categories
                     Text("All channels:", fontSize = 16.sp, color = TextSecondary)
                     Spacer(modifier = Modifier.height(8.dp))
 
@@ -299,7 +284,6 @@ fun ContentPickerScreen(
                         }
                     )
                 } else {
-                    // Show channels in selected category
                     val categoryChannels = remember(app, selectedCategory) {
                         ChannelGuide.getChannelsForAppByCategory(app, selectedCategory!!)
                     }
@@ -340,12 +324,11 @@ fun ContentPickerScreen(
                 }
             }
             // ================================================================
-            // SEARCH MODE (for on-demand apps)
+            // SEARCH MODE
             // ================================================================
             else if (browseMode == BrowseMode.SEARCH && selectedShow == null) {
                 val app = selectedApp!!
 
-                // Search bar
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
@@ -384,7 +367,6 @@ fun ContentPickerScreen(
                     )
                 }
 
-                // Perform search when triggered
                 if (isSearching) {
                     LaunchedEffect(searchQuery) {
                         val results = withContext(Dispatchers.IO) {
@@ -397,25 +379,21 @@ fun ContentPickerScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Search results
                 if (searchResults.isNotEmpty()) {
                     Text(
-                        "${searchResults.size} results:",
+                        "${searchResults.size} results (search mode is most reliable):",
                         fontSize = 16.sp,
                         color = TextSecondary
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(searchResults) { content ->
                             SearchResultCard(
                                 content = content,
                                 app = app,
                                 onClick = {
                                     if (content.mediaType == MediaType.MOVIE) {
-                                        // For movies, use search to open the movie
                                         val contentId = ContentIdMapper.getContentId(
                                             content.tmdbId, app
                                         ) ?: ""
@@ -430,7 +408,6 @@ fun ContentPickerScreen(
                                             )
                                         )
                                     } else {
-                                        // For TV shows, go to season/episode picker
                                         selectedShow = content
                                     }
                                 }
@@ -446,13 +423,12 @@ fun ContentPickerScreen(
                 }
             }
             // ================================================================
-            // SEASON/EPISODE PICKER (after selecting a TV show)
+            // SEASON/EPISODE PICKER
             // ================================================================
             else if (browseMode == BrowseMode.SEARCH && selectedShow != null) {
                 val app = selectedApp!!
                 val show = selectedShow!!
 
-                // Load seasons
                 LaunchedEffect(show.tmdbId) {
                     val loadedSeasons = withContext(Dispatchers.IO) {
                         TmdbApi.getSeasons(show.tmdbId)
@@ -477,7 +453,6 @@ fun ContentPickerScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Season selector
                 if (seasons.isNotEmpty()) {
                     Text("Pick a season:", fontSize = 16.sp, color = TextSecondary)
                     Spacer(modifier = Modifier.height(8.dp))
@@ -514,7 +489,6 @@ fun ContentPickerScreen(
                         }
                     }
 
-                    // Load episodes for selected season
                     if (isLoadingEpisodes && selectedSeason != null) {
                         LaunchedEffect(selectedSeason!!.seasonNumber) {
                             val loadedEpisodes = withContext(Dispatchers.IO) {
@@ -525,7 +499,6 @@ fun ContentPickerScreen(
                         }
                     }
 
-                    // Episode list
                     if (selectedSeason != null && episodes.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
@@ -568,7 +541,7 @@ fun ContentPickerScreen(
                 }
             }
             // ================================================================
-            // MANUAL ENTRY (fallback)
+            // MANUAL ENTRY
             // ================================================================
             else if (browseMode == BrowseMode.MANUAL) {
                 val app = selectedApp!!
@@ -588,7 +561,6 @@ fun ContentPickerScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // Name field
                         Text("Name:", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
                         Spacer(modifier = Modifier.height(6.dp))
                         BasicTextField(
@@ -611,7 +583,6 @@ fun ContentPickerScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // Content ID field
                         Text("${app.contentIdLabel}:", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
                         Text(app.description, fontSize = 12.sp, color = TextSecondary.copy(alpha = 0.7f))
                         Spacer(modifier = Modifier.height(6.dp))
@@ -678,7 +649,7 @@ fun ContentPickerScreen(
                 Text(
                     text = launchResultMessage,
                     fontSize = 16.sp,
-                    color = if (launchResultMessage.startsWith("✓")) AlarmActiveGreen
+                    color = if (launchResultMessage.startsWith("\u2713")) AlarmActiveGreen
                     else AlarmFiringRed,
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center
@@ -693,216 +664,4 @@ private enum class BrowseMode {
     CHANNEL_GUIDE,
     SEARCH,
     MANUAL
-}
-
-// ---- Mode selection card ----
-@Composable
-private fun ModeCard(
-    title: String,
-    description: String,
-    color: Color,
-    onClick: () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.width(220.dp).height(140.dp),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = DarkSurface,
-            focusedContainerColor = DarkSurfaceVariant
-        ),
-        border = ClickableSurfaceDefaults.border(
-            focusedBorder = androidx.tv.material3.Border(
-                border = androidx.compose.foundation.BorderStroke(3.dp, color),
-                shape = RoundedCornerShape(14.dp)
-            )
-        ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(16.dp),
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = color)
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(description, fontSize = 13.sp, color = TextSecondary, maxLines = 3, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-// ---- Channel list ----
-@Composable
-private fun ChannelList(
-    channels: List<LiveChannel>,
-    app: StreamingApp,
-    onChannelPicked: (LiveChannel) -> Unit
-) {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        items(channels) { channel ->
-            Surface(
-                onClick = { onChannelPicked(channel) },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                colors = ClickableSurfaceDefaults.colors(
-                    containerColor = DarkSurface,
-                    focusedContainerColor = Color(app.colorHex).copy(alpha = 0.2f)
-                ),
-                border = ClickableSurfaceDefaults.border(
-                    focusedBorder = androidx.tv.material3.Border(
-                        border = androidx.compose.foundation.BorderStroke(2.dp, Color(app.colorHex)),
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                ),
-                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        channel.name,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = TextPrimary
-                    )
-                    Text(
-                        channel.category.displayName,
-                        fontSize = 13.sp,
-                        color = TextSecondary
-                    )
-                }
-            }
-        }
-    }
-}
-
-// ---- Search result card ----
-@Composable
-private fun SearchResultCard(
-    content: ContentInfo,
-    app: StreamingApp,
-    onClick: () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth().height(80.dp),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = DarkSurface,
-            focusedContainerColor = Color(app.colorHex).copy(alpha = 0.15f)
-        ),
-        border = ClickableSurfaceDefaults.border(
-            focusedBorder = androidx.tv.material3.Border(
-                border = androidx.compose.foundation.BorderStroke(2.dp, Color(app.colorHex)),
-                shape = RoundedCornerShape(10.dp)
-            )
-        ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Type badge
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(Color(app.colorHex).copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    if (content.mediaType == MediaType.TV_SHOW) "TV" else "Film",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    content.title,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    "${content.year} • ${if (content.mediaType == MediaType.TV_SHOW) "TV Show" else "Movie"}",
-                    fontSize = 13.sp,
-                    color = TextSecondary
-                )
-            }
-            // Show if we have a known content ID
-            val hasMapping = ContentIdMapper.getContentId(content.tmdbId, app) != null
-            if (hasMapping) {
-                Text("Direct Link", fontSize = 12.sp, color = AlarmActiveGreen)
-            }
-        }
-    }
-}
-
-// ---- Episode card ----
-@Composable
-private fun EpisodeCard(
-    episode: EpisodeInfo,
-    app: StreamingApp,
-    onClick: () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth().height(64.dp),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = DarkSurface,
-            focusedContainerColor = Color(app.colorHex).copy(alpha = 0.15f)
-        ),
-        border = ClickableSurfaceDefaults.border(
-            focusedBorder = androidx.tv.material3.Border(
-                border = androidx.compose.foundation.BorderStroke(2.dp, Color(app.colorHex)),
-                shape = RoundedCornerShape(8.dp)
-            )
-        ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Episode number badge
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(Color(app.colorHex).copy(alpha = 0.4f), RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "E${episode.episodeNumber}",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    episode.name,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (episode.overview.isNotBlank()) {
-                    Text(
-                        episode.overview.take(80) + if (episode.overview.length > 80) "..." else "",
-                        fontSize = 12.sp,
-                        color = TextSecondary,
-                        maxLines = 1
-                    )
-                }
-            }
-        }
-    }
 }

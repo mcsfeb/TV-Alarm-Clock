@@ -173,6 +173,39 @@ object TmdbApi {
     }
 
     /**
+     * Map TMDB provider names to our StreamingApp enum.
+     * TMDB uses different names than our app (e.g., "Amazon Prime Video" vs our PRIME_VIDEO).
+     */
+    private val providerNameMap = mapOf(
+        "Netflix" to com.mcsfeb.tvalarmclock.data.model.StreamingApp.NETFLIX,
+        "Hulu" to com.mcsfeb.tvalarmclock.data.model.StreamingApp.HULU,
+        "Disney Plus" to com.mcsfeb.tvalarmclock.data.model.StreamingApp.DISNEY_PLUS,
+        "Amazon Prime Video" to com.mcsfeb.tvalarmclock.data.model.StreamingApp.PRIME_VIDEO,
+        "HBO Max" to com.mcsfeb.tvalarmclock.data.model.StreamingApp.HBO_MAX,
+        "Max" to com.mcsfeb.tvalarmclock.data.model.StreamingApp.HBO_MAX,
+        "Peacock" to com.mcsfeb.tvalarmclock.data.model.StreamingApp.PEACOCK,
+        "Peacock Premium" to com.mcsfeb.tvalarmclock.data.model.StreamingApp.PEACOCK,
+        "Paramount Plus" to com.mcsfeb.tvalarmclock.data.model.StreamingApp.PARAMOUNT_PLUS,
+        "Paramount+" to com.mcsfeb.tvalarmclock.data.model.StreamingApp.PARAMOUNT_PLUS,
+        "Apple TV Plus" to com.mcsfeb.tvalarmclock.data.model.StreamingApp.APPLE_TV,
+        "Apple TV+" to com.mcsfeb.tvalarmclock.data.model.StreamingApp.APPLE_TV,
+        "Crunchyroll" to com.mcsfeb.tvalarmclock.data.model.StreamingApp.CRUNCHYROLL,
+        "Tubi TV" to com.mcsfeb.tvalarmclock.data.model.StreamingApp.TUBI,
+        "Starz" to com.mcsfeb.tvalarmclock.data.model.StreamingApp.STARZ,
+        "Discovery+" to com.mcsfeb.tvalarmclock.data.model.StreamingApp.DISCOVERY_PLUS,
+        "discovery+" to com.mcsfeb.tvalarmclock.data.model.StreamingApp.DISCOVERY_PLUS
+    )
+
+    /**
+     * Get watch providers mapped to our StreamingApp enum.
+     * Returns a list of StreamingApp values that have this content.
+     */
+    fun getWatchProviderApps(tmdbId: Int, mediaType: MediaType): List<com.mcsfeb.tvalarmclock.data.model.StreamingApp> {
+        val providerNames = getWatchProviders(tmdbId, mediaType)
+        return providerNames.mapNotNull { providerNameMap[it] }.distinct()
+    }
+
+    /**
      * Simple HTTP GET that returns a JSONObject.
      * We use basic HttpURLConnection to avoid adding OkHttp/Retrofit dependencies.
      */

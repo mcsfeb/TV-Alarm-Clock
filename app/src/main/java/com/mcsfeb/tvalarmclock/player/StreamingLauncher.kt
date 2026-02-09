@@ -265,6 +265,35 @@ class StreamingLauncher(
     }
 
     /**
+     * Verify if a deep link would resolve to an activity without actually launching it.
+     * Returns true if the intent can be handled, false otherwise.
+     *
+     * Use this to check if a deep link will work BEFORE the alarm fires,
+     * so the user gets a warning if the link is bad.
+     */
+    fun verifyDeepLink(app: StreamingApp, contentId: String): Boolean {
+        val installedPackage = findInstalledPackage(app) ?: return false
+        if (contentId.isBlank()) return false
+
+        val deepLinkUrl = StreamingApp.buildDeepLink(app, contentId)
+        val intent = buildIntent(app, deepLinkUrl, installedPackage)
+
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.packageManager.resolveActivity(
+                    intent,
+                    PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong())
+                ) != null
+            } else {
+                @Suppress("DEPRECATION")
+                context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY) != null
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
      * Build the intent with app-specific quirks and extras.
      */
     private fun buildIntent(app: StreamingApp, deepLinkUrl: String, installedPackage: String): Intent {
