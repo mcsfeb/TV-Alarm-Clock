@@ -1,16 +1,19 @@
 package com.mcsfeb.tvalarmclock.data.model
 
+import com.mcsfeb.tvalarmclock.data.config.DeepLinkConfig
+
 /**
  * StreamingApp - Every streaming service we support launching.
  *
- * Each entry has:
- * - displayName: What the user sees (e.g., "Netflix")
- * - packageName: The Android TV app's unique ID (used to launch it)
- * - deepLinkFormat: The URL pattern for opening specific content
- *   Use {id} as a placeholder for the content ID
- * - requiresExtras: Any special intent extras needed (e.g., Netflix needs source=30)
- * - color: Brand color for the UI card
- * - description: Short note about what kind of content IDs to use
+ * Each entry has HARDCODED DEFAULTS that work as a fallback.
+ * At runtime, the JSON config file (assets/deep_link_config.json) can
+ * OVERRIDE these values. This means:
+ *
+ * - If a streaming app changes their deep link format with an update,
+ *   you only need to edit the JSON file and rebuild.
+ * - If the JSON file fails to load, the hardcoded defaults still work.
+ * - The companion object methods (getDeepLinkFormats, getSearchUrl, etc.)
+ *   always check the config first, then fall back to hardcoded values.
  *
  * IMPORTANT: These deep links are unofficial. Streaming apps can change them
  * at any time with an update. Always wrap launches in try-catch!
@@ -18,7 +21,7 @@ package com.mcsfeb.tvalarmclock.data.model
 enum class StreamingApp(
     val displayName: String,
     val packageName: String,
-    val altPackageNames: List<String> = emptyList(),  // Alternate package names to check
+    val altPackageNames: List<String> = emptyList(),
     val deepLinkFormat: String,
     val contentIdLabel: String,
     val description: String,
@@ -28,18 +31,18 @@ enum class StreamingApp(
     NETFLIX(
         displayName = "Netflix",
         packageName = "com.netflix.ninja",
-        deepLinkFormat = "http://www.netflix.com/watch/{id}",
+        deepLinkFormat = "nflx://www.netflix.com/watch/{id}",
         contentIdLabel = "Netflix Title ID",
         description = "Use the number from the Netflix URL (e.g., 80057281 for Stranger Things)",
         colorHex = 0xFFE50914,
-        requiresSourceExtra = true  // Netflix requires putExtra("source", "30")
+        requiresSourceExtra = true
     ),
 
     YOUTUBE(
         displayName = "YouTube",
         packageName = "com.google.android.youtube.tv",
         altPackageNames = listOf("com.google.android.youtube"),
-        deepLinkFormat = "vnd.youtube:{id}",
+        deepLinkFormat = "vnd.youtube://{id}",
         contentIdLabel = "YouTube Video ID",
         description = "The letters after watch?v= in a YouTube link (e.g., dQw4w9WgXcQ)",
         colorHex = 0xFFFF0000
@@ -48,7 +51,8 @@ enum class StreamingApp(
     HULU(
         displayName = "Hulu",
         packageName = "com.hulu.livingroomplus",
-        deepLinkFormat = "https://www.hulu.com/watch/{id}",
+        altPackageNames = listOf("com.hulu.plus"),
+        deepLinkFormat = "hulu://watch/{id}",
         contentIdLabel = "Hulu Episode ID",
         description = "The UUID from a Hulu episode URL",
         colorHex = 0xFF1CE783
@@ -66,9 +70,10 @@ enum class StreamingApp(
     PRIME_VIDEO(
         displayName = "Prime Video",
         packageName = "com.amazon.amazonvideo.livingroom",
+        altPackageNames = listOf("com.amazon.avod", "com.amazon.avod.thirdpartyclient"),
         deepLinkFormat = "https://app.primevideo.com/detail?gti={id}",
         contentIdLabel = "Prime Video ASIN",
-        description = "The ASIN code from an Amazon Prime Video URL",
+        description = "The ASIN code from an Amazon Prime Video URL (e.g., B078GY1HJV)",
         colorHex = 0xFF00A8E1
     ),
 
@@ -77,8 +82,8 @@ enum class StreamingApp(
         packageName = "com.wbd.stream",
         altPackageNames = listOf("com.hbo.hbonow", "com.hbo.max.android.tv"),
         deepLinkFormat = "https://play.max.com/episode/{id}",
-        contentIdLabel = "Max Episode ID",
-        description = "The episode ID from a Max/HBO URL",
+        contentIdLabel = "Max Episode/Movie ID",
+        description = "The episode or movie ID from a Max/HBO URL",
         colorHex = 0xFF5822B4
     ),
 
@@ -121,6 +126,7 @@ enum class StreamingApp(
     TUBI(
         displayName = "Tubi",
         packageName = "com.tubitv",
+        altPackageNames = listOf("com.tubitv.ott"),
         deepLinkFormat = "https://tubitv.com/movies/{id}",
         contentIdLabel = "Tubi Content ID",
         description = "The number from a Tubi URL (free streaming!)",
@@ -158,6 +164,7 @@ enum class StreamingApp(
     FUBO_TV(
         displayName = "fuboTV",
         packageName = "com.fubo.firetv",
+        altPackageNames = listOf("com.fubo.tv", "com.fubo.android.tv"),
         deepLinkFormat = "https://www.fubo.tv/watch/{id}",
         contentIdLabel = "fuboTV Channel ID",
         description = "Channel or content ID for live sports and TV",
@@ -167,6 +174,7 @@ enum class StreamingApp(
     DISCOVERY_PLUS(
         displayName = "Discovery+",
         packageName = "com.discovery.discoveryplus.androidtv",
+        altPackageNames = listOf("com.wbd.discoveryplus"),
         deepLinkFormat = "https://www.discoveryplus.com/video/{id}",
         contentIdLabel = "Discovery+ Video ID",
         description = "The video ID from a Discovery+ URL",
@@ -195,9 +203,70 @@ enum class StreamingApp(
         /** Get all apps sorted alphabetically by display name */
         fun allSorted(): List<StreamingApp> = entries.sortedBy { it.displayName }
 
-        /** Build the deep link URL by replacing {id} with actual content ID */
+        /**
+         * Build the deep link URL by replacing {id} with actual content ID.
+         * Uses the PRIMARY format (first in config, or hardcoded default).
+         */
         fun buildDeepLink(app: StreamingApp, contentId: String): String {
-            return app.deepLinkFormat.replace("{id}", contentId)
+            val format = getDeepLinkFormats(app).firstOrNull() ?: app.deepLinkFormat
+            return format.replace("{id}", contentId)
+        }
+
+        /**
+         * Get ALL deep link formats for an app, ordered by preference.
+         * Reads from config file first; falls back to hardcoded default.
+         *
+         * The launcher tries these in order until one works:
+         * Format 1 (preferred) → Format 2 (alternate) → Format 3 (fallback) → app-only
+         */
+        fun getDeepLinkFormats(app: StreamingApp): List<String> {
+            val fromConfig = DeepLinkConfig.getDeepLinkFormats(app.name)
+            return if (fromConfig.isNotEmpty()) fromConfig else listOf(app.deepLinkFormat)
+        }
+
+        /**
+         * Get the search URL for an app, with {query} as placeholder.
+         * Returns null if app doesn't support search deep links.
+         */
+        fun getSearchUrl(app: StreamingApp): String? {
+            return DeepLinkConfig.getSearchUrl(app.name)
+        }
+
+        /**
+         * Get intent extras for this app (e.g., Netflix needs source=30).
+         */
+        fun getIntentExtras(app: StreamingApp): Map<String, String> {
+            return DeepLinkConfig.getIntentExtras(app.name)
+        }
+
+        /**
+         * Get the specific Activity class to target, if any.
+         */
+        fun getIntentClassName(app: StreamingApp): String? {
+            return DeepLinkConfig.getIntentClassName(app.name)
+        }
+
+        /**
+         * Check if app needs to be force-stopped before re-launching.
+         */
+        fun needsForceStop(app: StreamingApp): Boolean {
+            return DeepLinkConfig.needsForceStop(app.name)
+        }
+
+        /**
+         * Get all alt package names (from config if available, else hardcoded).
+         */
+        fun getAltPackageNames(app: StreamingApp): List<String> {
+            val config = DeepLinkConfig.getAppConfig(app.name)
+            return config?.altPackageNames ?: app.altPackageNames
+        }
+
+        /**
+         * Get the primary package name (from config if available, else hardcoded).
+         */
+        fun getPackageName(app: StreamingApp): String {
+            val config = DeepLinkConfig.getAppConfig(app.name)
+            return config?.packageName ?: app.packageName
         }
     }
 }

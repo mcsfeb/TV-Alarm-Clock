@@ -3,6 +3,7 @@ package com.mcsfeb.tvalarmclock.service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import com.mcsfeb.tvalarmclock.data.config.DeepLinkConfig
 import com.mcsfeb.tvalarmclock.ui.screens.AlarmActivity
 
 /**
@@ -18,6 +19,9 @@ import com.mcsfeb.tvalarmclock.ui.screens.AlarmActivity
 class AlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        // Step 0: Load deep link config (app may not be running yet)
+        DeepLinkConfig.load(context)
+
         // Step 1: Wake up the TV screen
         WakeUpHelper.acquireWakeLock(context)
 

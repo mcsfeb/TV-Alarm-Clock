@@ -6,6 +6,7 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.*
+import com.mcsfeb.tvalarmclock.data.config.DeepLinkConfig
 import com.mcsfeb.tvalarmclock.data.repository.AlarmRepository
 import com.mcsfeb.tvalarmclock.data.repository.ContentRepository
 import com.mcsfeb.tvalarmclock.player.LaunchResult
@@ -33,6 +34,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Load deep link config from JSON before anything else
+        DeepLinkConfig.load(this)
 
         alarmScheduler = AlarmScheduler(this)
         streamingLauncher = StreamingLauncher(this)

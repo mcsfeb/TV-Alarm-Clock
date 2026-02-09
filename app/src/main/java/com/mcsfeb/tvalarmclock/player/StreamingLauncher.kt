@@ -1,5 +1,6 @@
 package com.mcsfeb.tvalarmclock.player
 
+import android.app.ActivityManager
 import android.app.SearchManager
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -8,6 +9,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.util.Log
+import com.mcsfeb.tvalarmclock.data.config.DeepLinkConfig
 import com.mcsfeb.tvalarmclock.data.model.StreamingApp
 
 /**
@@ -15,23 +18,23 @@ import com.mcsfeb.tvalarmclock.data.model.StreamingApp
  *
  * This class handles:
  * 1. Checking if a streaming app is installed on the TV
- * 2. Building the correct deep link intent for each app
- * 3. Launching the app with specific content, a search query, or just opening it
- * 4. Handling errors gracefully if the app isn't installed or the link fails
- * 5. Auto-clicking past profile selection screens (via ProfileAutoSelector)
+ * 2. Building the correct deep link intent for each app (from config file)
+ * 3. Trying MULTIPLE URI schemes with automatic fallback if one fails
+ * 4. Launching the app with specific content, a search query, or just opening it
+ * 5. Handling errors gracefully if the app isn't installed or the link fails
+ * 6. Auto-clicking past profile selection screens (via ProfileAutoSelector)
  *
- * THREE WAYS TO LAUNCH:
- * - launch(app, contentId) → Deep link to specific content (if you have the ID)
- * - launchWithSearch(app, showName) → Open the app and search for a show by name
- * - launchAppOnly(app) → Just open the app to its home screen
+ * LAUNCH STRATEGY (in order of preference):
+ * 1. Deep link with primary URI scheme from config → specific content
+ * 2. Deep link with alternate URI schemes → same content, different format
+ * 3. Search within the app → opens the app and searches for the show
+ * 4. App-only launch → just opens the app to its home screen
  *
- * After launching, ProfileAutoSelector automatically sends simulated D-pad
- * key presses to click past "Who's Watching?" profile screens. This way
- * the alarm can fully auto-play content even when the user is asleep.
- *
- * The "search" approach is the most reliable for getting to specific content
- * without needing proprietary content IDs. Most Android TV apps support
- * either the global SEARCH intent or their own search deep links.
+ * URI SCHEMES ARE CONFIGURABLE:
+ * All deep link formats, package names, and app-specific quirks are loaded
+ * from assets/deep_link_config.json. If a streaming app pushes an update
+ * that breaks its deep link, you just edit the JSON file and rebuild.
+ * Hardcoded defaults in StreamingApp.kt are used if the config fails.
  */
 class StreamingLauncher(
     private val context: Context,
@@ -44,88 +47,122 @@ class StreamingLauncher(
      */
     private val autoProfileSelect: Boolean = false
 ) {
+    companion object {
+        private const val TAG = "StreamingLauncher"
+    }
+
+    init {
+        // Load the deep link config on first use
+        DeepLinkConfig.load(context)
+    }
 
     /**
      * Find which package name is actually installed for a streaming app.
-     * Checks the primary package first, then all alternates.
+     * Checks the primary package first (from config), then all alternates.
      * Returns null if none are installed.
      */
     fun findInstalledPackage(app: StreamingApp): String? {
-        if (isPackageInstalled(app.packageName)) return app.packageName
-        for (altPackage in app.altPackageNames) {
-            if (isPackageInstalled(altPackage)) return altPackage
+        val primaryPkg = StreamingApp.getPackageName(app)
+        if (isPackageInstalled(primaryPkg)) return primaryPkg
+
+        for (altPkg in StreamingApp.getAltPackageNames(app)) {
+            if (isPackageInstalled(altPkg)) return altPkg
         }
         return null
     }
 
     /**
      * Launch a streaming app to specific content using a deep link ID.
-     * Use this when you have the app's internal content ID.
+     *
+     * FALLBACK CHAIN:
+     * 1. Try each URI format from config (primary first, then alternates)
+     * 2. If ALL deep link formats fail → fall back to app-only launch
+     *
+     * This means if Netflix changes their URI scheme, we try the others
+     * automatically before giving up.
      */
     fun launch(app: StreamingApp, contentId: String): LaunchResult {
         val installedPackage = findInstalledPackage(app)
             ?: return LaunchResult.AppNotInstalled(app.displayName)
 
-        val deepLinkUrl = StreamingApp.buildDeepLink(app, contentId)
-        val intent = buildIntent(app, deepLinkUrl, installedPackage)
-
-        return try {
-            context.startActivity(intent)
-            // Auto-click past profile selection screen if this app has one
-            if (autoProfileSelect) {
-                ProfileAutoSelector.scheduleAutoSelect(installedPackage)
-            }
-            LaunchResult.Success(app.displayName, deepLinkUrl)
-        } catch (e: ActivityNotFoundException) {
-            LaunchResult.LaunchFailed(app.displayName, "Activity not found: ${e.message}")
-        } catch (e: Exception) {
-            LaunchResult.LaunchFailed(app.displayName, "Unexpected error: ${e.message}")
+        // Force-stop the app first if needed (Hulu quirk)
+        if (StreamingApp.needsForceStop(app)) {
+            forceStopApp(installedPackage)
         }
+
+        // Get all deep link formats to try (from config, then hardcoded fallback)
+        val formats = StreamingApp.getDeepLinkFormats(app)
+        val extras = StreamingApp.getIntentExtras(app)
+        val className = StreamingApp.getIntentClassName(app)
+
+        // Try each URI format until one works
+        for (format in formats) {
+            val deepLinkUrl = format.replace("{id}", contentId)
+            val intent = buildIntentFromConfig(deepLinkUrl, installedPackage, extras, className)
+
+            try {
+                context.startActivity(intent)
+                Log.d(TAG, "Launched ${app.displayName} with: $deepLinkUrl")
+
+                if (autoProfileSelect) {
+                    ProfileAutoSelector.scheduleAutoSelect(installedPackage)
+                }
+                return LaunchResult.Success(app.displayName, deepLinkUrl)
+            } catch (e: ActivityNotFoundException) {
+                Log.w(TAG, "Format failed for ${app.displayName}: $deepLinkUrl → ${e.message}")
+                // Try next format
+            } catch (e: Exception) {
+                Log.w(TAG, "Format error for ${app.displayName}: $deepLinkUrl → ${e.message}")
+                // Try next format
+            }
+        }
+
+        // All deep link formats failed → fall back to app-only launch
+        Log.w(TAG, "All deep link formats failed for ${app.displayName}, falling back to app-only")
+        return launchAppOnly(app)
     }
 
     /**
      * Launch a streaming app and search for a show/movie by name.
      *
-     * This is the BEST way to get to specific content because:
-     * - No proprietary content IDs needed
-     * - Works for any show available on the platform
-     * - Opens the app directly to the show's page (usually)
-     *
-     * Strategy per app:
-     * 1. Try app-specific search deep link (most reliable)
-     * 2. Fall back to Android's global SEARCH intent targeted at the app
-     * 3. Final fallback: just open the app
+     * FALLBACK CHAIN:
+     * 1. App-specific search URL from config (most reliable)
+     * 2. Android's built-in SEARCH intent targeted at the app
+     * 3. Global media search (Android TV's search system)
+     * 4. Just open the app
      */
     fun launchWithSearch(app: StreamingApp, showName: String): LaunchResult {
         val installedPackage = findInstalledPackage(app)
             ?: return LaunchResult.AppNotInstalled(app.displayName)
 
-        // First try: App-specific search deep link
-        val searchUrl = getSearchDeepLink(app, showName)
+        // Force-stop if needed
+        if (StreamingApp.needsForceStop(app)) {
+            forceStopApp(installedPackage)
+        }
+
+        val encoded = Uri.encode(showName)
+        val extras = StreamingApp.getIntentExtras(app)
+        val className = StreamingApp.getIntentClassName(app)
+
+        // Strategy 1: App-specific search URL from config
+        val searchUrl = StreamingApp.getSearchUrl(app)
         if (searchUrl != null) {
+            val resolvedUrl = searchUrl.replace("{query}", encoded)
             try {
-                val intent = Intent(Intent.ACTION_VIEW).apply {
-                    data = Uri.parse(searchUrl)
-                    setPackage(installedPackage)
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                }
-                // Netflix needs special handling
-                if (app == StreamingApp.NETFLIX) {
-                    intent.setClassName("com.netflix.ninja", "com.netflix.ninja.MainActivity")
-                    intent.putExtra("source", "30")
-                }
+                val intent = buildIntentFromConfig(resolvedUrl, installedPackage, extras, className)
                 context.startActivity(intent)
-                // Auto-click past profile selection screen
+                Log.d(TAG, "Search launched ${app.displayName}: $resolvedUrl")
+
                 if (autoProfileSelect) {
                     ProfileAutoSelector.scheduleAutoSelect(installedPackage)
                 }
                 return LaunchResult.Success(app.displayName, "search: $showName")
             } catch (e: Exception) {
-                // Fall through to next strategy
+                Log.w(TAG, "Search URL failed for ${app.displayName}: ${e.message}")
             }
         }
 
-        // Second try: Android's built-in SEARCH intent targeted at the app
+        // Strategy 2: Android's built-in SEARCH intent
         try {
             val searchIntent = Intent(Intent.ACTION_SEARCH).apply {
                 setPackage(installedPackage)
@@ -133,16 +170,17 @@ class StreamingLauncher(
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             }
             context.startActivity(searchIntent)
-            // Auto-click past profile selection screen
+            Log.d(TAG, "ACTION_SEARCH launched for ${app.displayName}")
+
             if (autoProfileSelect) {
                 ProfileAutoSelector.scheduleAutoSelect(installedPackage)
             }
             return LaunchResult.Success(app.displayName, "search: $showName")
         } catch (e: Exception) {
-            // Fall through to next strategy
+            Log.w(TAG, "ACTION_SEARCH failed for ${app.displayName}: ${e.message}")
         }
 
-        // Third try: Global content search (Android TV's built-in search system)
+        // Strategy 3: Global media search (Android TV)
         try {
             val globalSearch = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
                 putExtra(SearchManager.QUERY, showName)
@@ -151,16 +189,18 @@ class StreamingLauncher(
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(globalSearch)
-            // Auto-click past profile selection screen
+            Log.d(TAG, "Media search launched for ${app.displayName}")
+
             if (autoProfileSelect) {
                 ProfileAutoSelector.scheduleAutoSelect(installedPackage)
             }
             return LaunchResult.Success(app.displayName, "media search: $showName")
         } catch (e: Exception) {
-            // Fall through to fallback
+            Log.w(TAG, "Media search failed for ${app.displayName}: ${e.message}")
         }
 
-        // Final fallback: just open the app
+        // Strategy 4: Just open the app
+        Log.w(TAG, "All search strategies failed for ${app.displayName}, opening app only")
         return launchAppOnly(app)
     }
 
@@ -178,7 +218,7 @@ class StreamingLauncher(
             try {
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(launchIntent)
-                // Auto-click past profile selection screen
+
                 if (autoProfileSelect) {
                     ProfileAutoSelector.scheduleAutoSelect(installedPackage)
                 }
@@ -196,6 +236,41 @@ class StreamingLauncher(
      */
     fun getInstalledApps(): List<StreamingApp> {
         return StreamingApp.entries.filter { findInstalledPackage(it) != null }
+    }
+
+    /**
+     * Verify if a deep link would resolve to an activity without actually launching it.
+     * Tries all URI formats from config and returns true if ANY would work.
+     */
+    fun verifyDeepLink(app: StreamingApp, contentId: String): Boolean {
+        val installedPackage = findInstalledPackage(app) ?: return false
+        if (contentId.isBlank()) return false
+
+        val formats = StreamingApp.getDeepLinkFormats(app)
+        val extras = StreamingApp.getIntentExtras(app)
+        val className = StreamingApp.getIntentClassName(app)
+
+        for (format in formats) {
+            val deepLinkUrl = format.replace("{id}", contentId)
+            val intent = buildIntentFromConfig(deepLinkUrl, installedPackage, extras, className)
+
+            val resolves = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    context.packageManager.resolveActivity(
+                        intent,
+                        PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong())
+                    ) != null
+                } else {
+                    @Suppress("DEPRECATION")
+                    context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY) != null
+                }
+            } catch (e: Exception) {
+                false
+            }
+
+            if (resolves) return true
+        }
+        return false
     }
 
     /**
@@ -220,118 +295,57 @@ class StreamingLauncher(
         }
     }
 
+    // ========== Private helpers ==========
+
     /**
-     * Get app-specific search deep link URL.
+     * Build an intent using config-driven parameters.
      *
-     * Many streaming apps support search via URL deep links.
-     * This is MORE RELIABLE than the generic Android SEARCH intent
-     * because each app handles their own URL scheme.
+     * This replaces the old app-specific switch/when block.
+     * All app-specific quirks (extras, class names) come from the JSON config.
      */
-    private fun getSearchDeepLink(app: StreamingApp, query: String): String? {
-        val encoded = Uri.encode(query)
-        return when (app) {
-            StreamingApp.NETFLIX ->
-                "https://www.netflix.com/search?q=$encoded"
-            StreamingApp.HBO_MAX ->
-                "https://play.max.com/search?q=$encoded"
-            StreamingApp.HULU ->
-                "https://www.hulu.com/search?q=$encoded"
-            StreamingApp.DISNEY_PLUS ->
-                "https://www.disneyplus.com/search?q=$encoded"
-            StreamingApp.PRIME_VIDEO ->
-                "https://app.primevideo.com/search?phrase=$encoded"
-            StreamingApp.YOUTUBE ->
-                "https://www.youtube.com/results?search_query=$encoded"
-            StreamingApp.PARAMOUNT_PLUS ->
-                "https://www.paramountplus.com/search/?q=$encoded"
-            StreamingApp.PEACOCK ->
-                "https://www.peacocktv.com/search?query=$encoded"
-            StreamingApp.CRUNCHYROLL ->
-                "https://www.crunchyroll.com/search?q=$encoded"
-            StreamingApp.TUBI ->
-                "https://tubitv.com/search/$encoded"
-            StreamingApp.APPLE_TV ->
-                "https://tv.apple.com/search?term=$encoded"
-            StreamingApp.DISCOVERY_PLUS ->
-                "https://www.discoveryplus.com/search?q=$encoded"
-            // Live TV apps don't really have search deep links
-            StreamingApp.SLING_TV -> null
-            StreamingApp.YOUTUBE_TV -> null
-            StreamingApp.FUBO_TV -> null
-            StreamingApp.PLUTO_TV -> null
-            StreamingApp.PLEX -> null
-            StreamingApp.STARZ -> null
-        }
-    }
-
-    /**
-     * Verify if a deep link would resolve to an activity without actually launching it.
-     * Returns true if the intent can be handled, false otherwise.
-     *
-     * Use this to check if a deep link will work BEFORE the alarm fires,
-     * so the user gets a warning if the link is bad.
-     */
-    fun verifyDeepLink(app: StreamingApp, contentId: String): Boolean {
-        val installedPackage = findInstalledPackage(app) ?: return false
-        if (contentId.isBlank()) return false
-
-        val deepLinkUrl = StreamingApp.buildDeepLink(app, contentId)
-        val intent = buildIntent(app, deepLinkUrl, installedPackage)
-
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.packageManager.resolveActivity(
-                    intent,
-                    PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong())
-                ) != null
-            } else {
-                @Suppress("DEPRECATION")
-                context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY) != null
-            }
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    /**
-     * Build the intent with app-specific quirks and extras.
-     */
-    private fun buildIntent(app: StreamingApp, deepLinkUrl: String, installedPackage: String): Intent {
+    private fun buildIntentFromConfig(
+        deepLinkUrl: String,
+        installedPackage: String,
+        extras: Map<String, String>,
+        className: String?
+    ): Intent {
         val intent = Intent(Intent.ACTION_VIEW).apply {
             data = Uri.parse(deepLinkUrl)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
 
-        when (app) {
-            StreamingApp.NETFLIX -> {
-                intent.setClassName("com.netflix.ninja", "com.netflix.ninja.MainActivity")
-                intent.putExtra("source", "30")
-            }
-            StreamingApp.YOUTUBE -> {
-                intent.setPackage(installedPackage)
-            }
-            StreamingApp.HULU -> {
-                try {
-                    intent.setClassName(
-                        "com.hulu.livingroomplus",
-                        "com.hulu.livingroomplus.WKFactivity"
-                    )
-                } catch (e: Exception) {
-                    intent.setPackage(installedPackage)
-                }
-            }
-            StreamingApp.HBO_MAX -> {
-                intent.setPackage(installedPackage)
-            }
-            StreamingApp.YOUTUBE_TV -> {
-                intent.setPackage(installedPackage)
-            }
-            else -> {
-                intent.setPackage(installedPackage)
-            }
+        // Set the target: either a specific Activity class, or just the package
+        if (className != null) {
+            intent.setClassName(installedPackage, className)
+        } else {
+            intent.setPackage(installedPackage)
+        }
+
+        // Add any required extras (e.g., Netflix source=30)
+        for ((key, value) in extras) {
+            intent.putExtra(key, value)
         }
 
         return intent
+    }
+
+    /**
+     * Force-stop an app before re-launching (Hulu quirk).
+     * Some apps get confused if you deep-link while they're already running
+     * with different content. Force-stopping ensures a clean launch.
+     *
+     * NOTE: This requires the app to have been launched at least once.
+     * On some devices, this may not work without root or device-admin privileges.
+     */
+    private fun forceStopApp(packageName: String) {
+        try {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            @Suppress("DEPRECATION")
+            am.killBackgroundProcesses(packageName)
+            Log.d(TAG, "Force-stopped $packageName before re-launch")
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not force-stop $packageName: ${e.message}")
+        }
     }
 }
 

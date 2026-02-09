@@ -1,0 +1,301 @@
+{
+  "_comment": "Deep link configuration for TV Alarm Clock. Edit this file to fix broken deep links without changing code. Version number should be bumped whenever you change anything.",
+  "configVersion": 1,
+  "lastUpdated": "2026-02-09",
+
+  "apps": {
+    "NETFLIX": {
+      "_comment": "Netflix Android TV. MUST use com.netflix.ninja (not .mediaclient). MUST include source=30 extra or deep links land on home screen instead of content.",
+      "packageName": "com.netflix.ninja",
+      "altPackageNames": [],
+      "deepLinkFormats": [
+        "nflx://www.netflix.com/watch/{id}",
+        "https://www.netflix.com/watch/{id}",
+        "http://www.netflix.com/watch/{id}"
+      ],
+      "searchUrl": "https://www.netflix.com/search?q={query}",
+      "intentExtras": {
+        "source": "30"
+      },
+      "intentClassName": "com.netflix.ninja.MainActivity",
+      "needsForceStopBefore": false,
+      "contentIdLabel": "Netflix Title ID",
+      "contentIdHint": "Use the number from the Netflix URL (e.g., 80057281 for Stranger Things)"
+    },
+
+    "YOUTUBE": {
+      "_comment": "YouTube on Android TV. Package is .youtube.tv on smart TVs, .youtube on some devices. vnd.youtube scheme is most reliable for video launch.",
+      "packageName": "com.google.android.youtube.tv",
+      "altPackageNames": ["com.google.android.youtube"],
+      "deepLinkFormats": [
+        "vnd.youtube://{id}",
+        "https://www.youtube.com/watch?v={id}",
+        "https://youtu.be/{id}"
+      ],
+      "searchUrl": "https://www.youtube.com/results?search_query={query}",
+      "intentExtras": {},
+      "intentClassName": null,
+      "needsForceStopBefore": false,
+      "contentIdLabel": "YouTube Video ID",
+      "contentIdHint": "The letters after watch?v= in a YouTube link (e.g., dQw4w9WgXcQ)"
+    },
+
+    "HULU": {
+      "_comment": "Hulu on Android TV. WKFactivity class name is fragile - use package-only targeting. May need force-stop before re-launching to a new deep link.",
+      "packageName": "com.hulu.livingroomplus",
+      "altPackageNames": ["com.hulu.plus"],
+      "deepLinkFormats": [
+        "hulu://watch/{id}",
+        "https://www.hulu.com/watch/{id}"
+      ],
+      "searchUrl": "https://www.hulu.com/search?q={query}",
+      "intentExtras": {},
+      "intentClassName": null,
+      "needsForceStopBefore": true,
+      "contentIdLabel": "Hulu Episode ID",
+      "contentIdHint": "The UUID from a Hulu episode URL"
+    },
+
+    "DISNEY_PLUS": {
+      "_comment": "Disney+ on Android TV. Web-style deep links are the known working format.",
+      "packageName": "com.disney.disneyplus",
+      "altPackageNames": [],
+      "deepLinkFormats": [
+        "https://www.disneyplus.com/video/{id}",
+        "disneyplus://video/{id}"
+      ],
+      "searchUrl": "https://www.disneyplus.com/search?q={query}",
+      "intentExtras": {},
+      "intentClassName": null,
+      "needsForceStopBefore": false,
+      "contentIdLabel": "Disney+ Content ID",
+      "contentIdHint": "The content ID from a Disney+ URL"
+    },
+
+    "PRIME_VIDEO": {
+      "_comment": "Prime Video on Android TV. The .livingroom package is for TV; ASIN is Amazon's product ID. amzn:// scheme is an alternate.",
+      "packageName": "com.amazon.amazonvideo.livingroom",
+      "altPackageNames": ["com.amazon.avod", "com.amazon.avod.thirdpartyclient"],
+      "deepLinkFormats": [
+        "https://app.primevideo.com/detail?gti={id}",
+        "amzn://apps/android?asin={id}",
+        "intent://watch.amazon.com/watch?asin={id}#Intent;scheme=https;end"
+      ],
+      "searchUrl": "https://app.primevideo.com/search?phrase={query}",
+      "intentExtras": {},
+      "intentClassName": null,
+      "needsForceStopBefore": false,
+      "contentIdLabel": "Prime Video ASIN",
+      "contentIdHint": "The ASIN code from an Amazon Prime Video URL (e.g., B078GY1HJV)"
+    },
+
+    "HBO_MAX": {
+      "_comment": "Max (formerly HBO Max). Package changed from com.hbo.hbonow to com.wbd.stream. Deep links use play.max.com.",
+      "packageName": "com.wbd.stream",
+      "altPackageNames": ["com.hbo.hbonow", "com.hbo.max.android.tv"],
+      "deepLinkFormats": [
+        "https://play.max.com/episode/{id}",
+        "https://play.max.com/movie/{id}",
+        "https://play.hbomax.com/episode/{id}"
+      ],
+      "searchUrl": "https://play.max.com/search?q={query}",
+      "intentExtras": {},
+      "intentClassName": null,
+      "needsForceStopBefore": false,
+      "contentIdLabel": "Max Episode/Movie ID",
+      "contentIdHint": "The episode or movie ID from a Max/HBO URL"
+    },
+
+    "SLING_TV": {
+      "_comment": "Sling TV for live TV channels. Channel IDs are internal Sling identifiers.",
+      "packageName": "com.sling",
+      "altPackageNames": [],
+      "deepLinkFormats": [
+        "https://watch.sling.com/watch/channel/{id}",
+        "sling://channel/{id}"
+      ],
+      "searchUrl": null,
+      "intentExtras": {},
+      "intentClassName": null,
+      "needsForceStopBefore": false,
+      "contentIdLabel": "Sling Channel ID",
+      "contentIdHint": "Channel ID or just launch the app to your last channel"
+    },
+
+    "PEACOCK": {
+      "_comment": "Peacock (NBCUniversal). Asset IDs are from Peacock URLs.",
+      "packageName": "com.peacocktv.peacockandroid",
+      "altPackageNames": [],
+      "deepLinkFormats": [
+        "https://www.peacocktv.com/watch/asset/{id}",
+        "peacock://watch/{id}"
+      ],
+      "searchUrl": "https://www.peacocktv.com/search?query={query}",
+      "intentExtras": {},
+      "intentClassName": null,
+      "needsForceStopBefore": false,
+      "contentIdLabel": "Peacock Asset ID",
+      "contentIdHint": "The asset ID from a Peacock URL"
+    },
+
+    "PARAMOUNT_PLUS": {
+      "_comment": "Paramount+ (formerly CBS All Access). Package is still com.cbs.ott.",
+      "packageName": "com.cbs.ott",
+      "altPackageNames": [],
+      "deepLinkFormats": [
+        "https://www.paramountplus.com/shows/video/{id}",
+        "https://www.paramountplus.com/movies/video/{id}"
+      ],
+      "searchUrl": "https://www.paramountplus.com/search/?q={query}",
+      "intentExtras": {},
+      "intentClassName": null,
+      "needsForceStopBefore": false,
+      "contentIdLabel": "Paramount+ Video ID",
+      "contentIdHint": "The video ID from a Paramount+ URL"
+    },
+
+    "APPLE_TV": {
+      "_comment": "Apple TV+ on Android TV. Package name is long but correct.",
+      "packageName": "com.apple.atve.androidtv.appletv",
+      "altPackageNames": [],
+      "deepLinkFormats": [
+        "https://tv.apple.com/show/{id}",
+        "https://tv.apple.com/movie/{id}",
+        "https://tv.apple.com/episode/{id}"
+      ],
+      "searchUrl": "https://tv.apple.com/search?term={query}",
+      "intentExtras": {},
+      "intentClassName": null,
+      "needsForceStopBefore": false,
+      "contentIdLabel": "Apple TV+ Show ID",
+      "contentIdHint": "The show path from an Apple TV+ URL"
+    },
+
+    "TUBI": {
+      "_comment": "Tubi (free streaming). Content IDs are numeric, from the Tubi URL.",
+      "packageName": "com.tubitv",
+      "altPackageNames": ["com.tubitv.ott"],
+      "deepLinkFormats": [
+        "https://tubitv.com/movies/{id}",
+        "https://tubitv.com/tv-shows/{id}",
+        "tubitv://{id}"
+      ],
+      "searchUrl": "https://tubitv.com/search/{query}",
+      "intentExtras": {},
+      "intentClassName": null,
+      "needsForceStopBefore": false,
+      "contentIdLabel": "Tubi Content ID",
+      "contentIdHint": "The number from a Tubi URL (free streaming!)"
+    },
+
+    "PLUTO_TV": {
+      "_comment": "Pluto TV (free live TV). Channel IDs are slug strings like 'cbs-news'.",
+      "packageName": "tv.pluto.android",
+      "altPackageNames": [],
+      "deepLinkFormats": [
+        "https://pluto.tv/live-tv/{id}",
+        "https://pluto.tv/on-demand/movies/{id}"
+      ],
+      "searchUrl": null,
+      "intentExtras": {},
+      "intentClassName": null,
+      "needsForceStopBefore": false,
+      "contentIdLabel": "Pluto TV Channel ID",
+      "contentIdHint": "The channel slug from a Pluto TV URL (free live TV!)"
+    },
+
+    "CRUNCHYROLL": {
+      "_comment": "Crunchyroll (anime). Episode IDs are alphanumeric strings.",
+      "packageName": "com.crunchyroll.crunchyroid",
+      "altPackageNames": [],
+      "deepLinkFormats": [
+        "https://www.crunchyroll.com/watch/{id}",
+        "crunchyroll://watch/{id}"
+      ],
+      "searchUrl": "https://www.crunchyroll.com/search?q={query}",
+      "intentExtras": {},
+      "intentClassName": null,
+      "needsForceStopBefore": false,
+      "contentIdLabel": "Crunchyroll Episode ID",
+      "contentIdHint": "The episode path from a Crunchyroll URL (anime streaming)"
+    },
+
+    "YOUTUBE_TV": {
+      "_comment": "YouTube TV (live TV service, separate from regular YouTube). Package is tvunplugged.",
+      "packageName": "com.google.android.youtube.tvunplugged",
+      "altPackageNames": ["com.google.android.apps.tv.launcherx"],
+      "deepLinkFormats": [
+        "https://tv.youtube.com/watch/{id}"
+      ],
+      "searchUrl": null,
+      "intentExtras": {},
+      "intentClassName": null,
+      "needsForceStopBefore": false,
+      "contentIdLabel": "YouTube TV Channel",
+      "contentIdHint": "Live TV channel or recording ID"
+    },
+
+    "FUBO_TV": {
+      "_comment": "fuboTV. Package com.fubo.firetv works on Fire TV, com.fubo.tv is generic Android TV. Both are checked.",
+      "packageName": "com.fubo.firetv",
+      "altPackageNames": ["com.fubo.tv", "com.fubo.android.tv"],
+      "deepLinkFormats": [
+        "https://www.fubo.tv/watch/{id}",
+        "fubo://watch/{id}"
+      ],
+      "searchUrl": null,
+      "intentExtras": {},
+      "intentClassName": null,
+      "needsForceStopBefore": false,
+      "contentIdLabel": "fuboTV Channel ID",
+      "contentIdHint": "Channel or content ID for live sports and TV"
+    },
+
+    "DISCOVERY_PLUS": {
+      "_comment": "Discovery+ (now merging with Max in some regions). Android TV specific package.",
+      "packageName": "com.discovery.discoveryplus.androidtv",
+      "altPackageNames": ["com.wbd.discoveryplus"],
+      "deepLinkFormats": [
+        "https://www.discoveryplus.com/video/{id}"
+      ],
+      "searchUrl": "https://www.discoveryplus.com/search?q={query}",
+      "intentExtras": {},
+      "intentClassName": null,
+      "needsForceStopBefore": false,
+      "contentIdLabel": "Discovery+ Video ID",
+      "contentIdHint": "The video ID from a Discovery+ URL"
+    },
+
+    "PLEX": {
+      "_comment": "Plex media server client. Uses plex:// custom URI scheme. Metadata keys look like /library/metadata/12345.",
+      "packageName": "com.plexapp.android",
+      "altPackageNames": [],
+      "deepLinkFormats": [
+        "plex://play/?metadataKey={id}",
+        "https://app.plex.tv/desktop#!/server/*/details?key={id}"
+      ],
+      "searchUrl": null,
+      "intentExtras": {},
+      "intentClassName": null,
+      "needsForceStopBefore": false,
+      "contentIdLabel": "Plex Metadata Key",
+      "contentIdHint": "The metadata key for your Plex media (e.g., /library/metadata/12345)"
+    },
+
+    "STARZ": {
+      "_comment": "Starz streaming app.",
+      "packageName": "com.bydeluxe.d3.android.program.starz",
+      "altPackageNames": [],
+      "deepLinkFormats": [
+        "https://www.starz.com/play/{id}",
+        "starz://play/{id}"
+      ],
+      "searchUrl": null,
+      "intentExtras": {},
+      "intentClassName": null,
+      "needsForceStopBefore": false,
+      "contentIdLabel": "Starz Content ID",
+      "contentIdHint": "The content ID from a Starz URL"
+    }
+  }
+}
