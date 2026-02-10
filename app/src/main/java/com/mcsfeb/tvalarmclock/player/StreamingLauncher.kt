@@ -122,9 +122,18 @@ class StreamingLauncher(
             }
         }
 
-        // All deep link formats failed → re-probe this app for new formats
-        Log.w(TAG, "All deep link formats failed for ${app.displayName}, re-probing and falling back")
+        // All deep link formats failed → re-probe, then try search, then app-only
+        Log.w(TAG, "All deep link formats failed for ${app.displayName}, re-probing...")
         DeepLinkResolver.probeApp(context, app)
+
+        // Try searching for the content ID as a last resort before app-only
+        // Some apps might find the content by ID-based search
+        Log.d(TAG, "Attempting search fallback for ${app.displayName} with: $contentId")
+        val searchResult = launchWithSearch(app, contentId)
+        if (searchResult is LaunchResult.Success) {
+            return LaunchResult.Success(app.displayName, "search fallback: $contentId")
+        }
+
         return launchAppOnly(app)
     }
 
@@ -365,9 +374,23 @@ class StreamingLauncher(
 
 /**
  * LaunchResult - What happened when we tried to open a streaming app.
+ *
+ * Each result has a user-friendly message for display on the alarm screen.
  */
 sealed class LaunchResult {
+    /** App launched successfully (deep link, search, or app-only) */
     data class Success(val appName: String, val deepLink: String) : LaunchResult()
+
+    /** The streaming app is not installed on this TV */
     data class AppNotInstalled(val appName: String) : LaunchResult()
+
+    /** Launch was attempted but failed */
     data class LaunchFailed(val appName: String, val error: String) : LaunchResult()
+
+    /** User-friendly message for display */
+    fun displayMessage(): String = when (this) {
+        is Success -> "\u2713 Launched $appName"
+        is AppNotInstalled -> "\u2717 $appName is not installed on this TV"
+        is LaunchFailed -> "\u2717 Could not open $appName: $error"
+    }
 }

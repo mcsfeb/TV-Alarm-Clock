@@ -24,11 +24,16 @@ import com.mcsfeb.tvalarmclock.ui.theme.*
 
 /**
  * SearchResultCard - Shows a single search result (TV show or movie) from TMDB.
+ *
+ * @param availableOn List of streaming apps that have this content (from TMDB watch providers).
+ *                    If non-null, shows colored dots for each available app.
+ *                    Green checkmark if the selected app has it.
  */
 @Composable
 fun SearchResultCard(
     content: ContentInfo,
     app: StreamingApp,
+    availableOn: List<StreamingApp>? = null,
     onClick: () -> Unit
 ) {
     Surface(
@@ -75,11 +80,34 @@ fun SearchResultCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    "${content.year} \u2022 ${if (content.mediaType == MediaType.TV_SHOW) "TV Show" else "Movie"}",
-                    fontSize = 13.sp,
-                    color = TextSecondary
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${content.year} \u2022 ${if (content.mediaType == MediaType.TV_SHOW) "TV Show" else "Movie"}",
+                        fontSize = 13.sp,
+                        color = TextSecondary
+                    )
+                    // Show which streaming apps have this content
+                    if (availableOn != null && availableOn.isNotEmpty()) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        val isOnSelectedApp = availableOn.contains(app)
+                        if (isOnSelectedApp) {
+                            Text(
+                                "\u2713 On ${app.displayName}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AlarmActiveGreen
+                            )
+                        } else {
+                            Text(
+                                "On: ${availableOn.take(3).joinToString { it.displayName }}",
+                                fontSize = 12.sp,
+                                color = AlarmTeal.copy(alpha = 0.8f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
             }
             // Show launch mode indicator
             val hasMapping = ContentIdMapper.getContentId(content.tmdbId, app) != null

@@ -1,5 +1,6 @@
 package com.mcsfeb.tvalarmclock.data.remote
 
+import com.mcsfeb.tvalarmclock.data.model.MediaType
 import com.mcsfeb.tvalarmclock.data.model.StreamingApp
 
 /**
@@ -11,15 +12,22 @@ import com.mcsfeb.tvalarmclock.data.model.StreamingApp
  *
  * THE SOLUTION:
  * 1. For popular shows, we maintain a curated map of TMDB ID → app content ID
- * 2. For unknown shows, we give the user a helpful fallback:
- *    - We know WHICH app has it (from TMDB watch providers)
- *    - We guide them to find the content ID (with app-specific tips)
- *    - Or they can just open the app and navigate manually
+ * 2. For shows we don't have mapped, try IMDB IDs (some apps accept them)
+ * 3. For everything else, fall back to search-based launching
  *
  * This curated list grows over time. The most common shows are included here.
  * In the future, this could be moved to a cloud database that updates independently.
  */
 object ContentIdMapper {
+
+    /**
+     * Apps that accept IMDB IDs (like "tt4574334") in their deep links.
+     * Prime Video and some others can resolve IMDB IDs to content.
+     */
+    private val appsAcceptingImdbIds = setOf(
+        StreamingApp.PRIME_VIDEO,
+        StreamingApp.APPLE_TV
+    )
 
     /**
      * Try to get the streaming app content ID for a TMDB show/movie.
@@ -29,6 +37,37 @@ object ContentIdMapper {
      */
     fun getContentId(tmdbId: Int, app: StreamingApp): String? {
         return popularContentMap[tmdbId]?.get(app)
+    }
+
+    /**
+     * Enhanced content ID lookup that also tries TMDB external IDs.
+     *
+     * LOOKUP ORDER:
+     * 1. Curated mapping (most reliable, verified content IDs)
+     * 2. IMDB ID for apps that accept it (Prime Video, Apple TV+)
+     * 3. null (caller should use SEARCH mode)
+     *
+     * NOTE: This makes a network call to TMDB for external IDs, so call from IO thread.
+     */
+    fun getContentIdWithFallback(
+        tmdbId: Int,
+        app: StreamingApp,
+        mediaType: MediaType
+    ): String? {
+        // Try curated mapping first
+        val curated = popularContentMap[tmdbId]?.get(app)
+        if (curated != null) return curated
+
+        // Try IMDB ID for apps that support it
+        if (app in appsAcceptingImdbIds) {
+            val externalIds = TmdbApi.getExternalIds(tmdbId, mediaType)
+            val imdbId = externalIds["imdb"]
+            if (imdbId != null && imdbId.startsWith("tt")) {
+                return imdbId
+            }
+        }
+
+        return null
     }
 
     /**

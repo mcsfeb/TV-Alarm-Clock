@@ -67,6 +67,9 @@ fun ContentPickerScreen(
     // Channel guide state
     var selectedCategory by remember { mutableStateOf<ChannelCategory?>(null) }
 
+    // Watch provider availability (TMDB tells us which apps have each show)
+    var watchProviders by remember { mutableStateOf<Map<Int, List<StreamingApp>>>(emptyMap()) }
+
     // Manual entry fallback
     var manualContentId by remember { mutableStateOf("") }
     var manualTitle by remember { mutableStateOf("") }
@@ -374,6 +377,18 @@ fun ContentPickerScreen(
                         }
                         searchResults = results
                         isSearching = false
+
+                        // Fetch watch providers for each result in the background
+                        withContext(Dispatchers.IO) {
+                            val providers = mutableMapOf<Int, List<StreamingApp>>()
+                            for (result in results.take(5)) { // Only fetch for top 5 to limit API calls
+                                val apps = TmdbApi.getWatchProviderApps(result.tmdbId, result.mediaType)
+                                if (apps.isNotEmpty()) {
+                                    providers[result.tmdbId] = apps
+                                }
+                            }
+                            watchProviders = providers
+                        }
                     }
                 }
 
@@ -392,6 +407,7 @@ fun ContentPickerScreen(
                             SearchResultCard(
                                 content = content,
                                 app = app,
+                                availableOn = watchProviders[content.tmdbId],
                                 onClick = {
                                     if (content.mediaType == MediaType.MOVIE) {
                                         val contentId = ContentIdMapper.getContentId(
@@ -518,6 +534,7 @@ fun ContentPickerScreen(
                                             show.tmdbId, app
                                         ) ?: ""
                                         val title = "${show.title} S${episode.seasonNumber}E${episode.episodeNumber}"
+                                        // Always use SEARCH as default — it's the most reliable
                                         onContentSelected(
                                             StreamingContent(
                                                 app = app,
@@ -525,7 +542,7 @@ fun ContentPickerScreen(
                                                 title = title,
                                                 launchMode = if (contentId.isNotBlank())
                                                     LaunchMode.DEEP_LINK else LaunchMode.SEARCH,
-                                                searchQuery = show.title
+                                                searchQuery = "${show.title} Season ${episode.seasonNumber}"
                                             )
                                         )
                                     }

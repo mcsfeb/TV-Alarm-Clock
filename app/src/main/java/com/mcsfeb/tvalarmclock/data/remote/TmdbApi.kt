@@ -206,6 +206,39 @@ object TmdbApi {
     }
 
     /**
+     * Get external IDs for a show/movie from TMDB.
+     *
+     * TMDB stores cross-references to other databases:
+     * - IMDB ID (e.g., "tt4574334" for Stranger Things)
+     * - TVDB ID, Facebook, Instagram, Twitter, etc.
+     *
+     * Some streaming apps accept IMDB IDs in their deep links (e.g., Prime Video).
+     * Returns a map of provider name → ID string.
+     */
+    fun getExternalIds(tmdbId: Int, mediaType: MediaType): Map<String, String> {
+        val type = if (mediaType == MediaType.TV_SHOW) "tv" else "movie"
+        val url = "$BASE_URL/$type/$tmdbId/external_ids?api_key=$API_KEY"
+
+        return try {
+            val json = fetchJson(url)
+            val ids = mutableMapOf<String, String>()
+
+            val imdbId = json.optString("imdb_id", "")
+            if (imdbId.isNotBlank()) ids["imdb"] = imdbId
+
+            val tvdbId = json.optInt("tvdb_id", 0)
+            if (tvdbId > 0) ids["tvdb"] = tvdbId.toString()
+
+            val facebookId = json.optString("facebook_id", "")
+            if (facebookId.isNotBlank()) ids["facebook"] = facebookId
+
+            ids
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
+    /**
      * Simple HTTP GET that returns a JSONObject.
      * We use basic HttpURLConnection to avoid adding OkHttp/Retrofit dependencies.
      */

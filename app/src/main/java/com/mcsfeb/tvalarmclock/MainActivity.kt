@@ -154,11 +154,5 @@ class MainActivity : ComponentActivity() {
         alarmScheduler.schedule(cal.timeInMillis, alarmId = alarm.id)
     }
 
-    private fun formatResult(result: LaunchResult): String {
-        return when (result) {
-            is LaunchResult.Success -> "\u2713 Launched ${result.appName}!"
-            is LaunchResult.AppNotInstalled -> "\u2717 ${result.appName} is not installed on this TV"
-            is LaunchResult.LaunchFailed -> "\u2717 Failed: ${result.error}"
-        }
-    }
+    private fun formatResult(result: LaunchResult): String = result.displayMessage()
 }

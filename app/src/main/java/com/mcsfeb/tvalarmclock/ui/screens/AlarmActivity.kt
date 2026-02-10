@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import com.mcsfeb.tvalarmclock.data.model.LaunchMode
 import com.mcsfeb.tvalarmclock.data.model.StreamingApp
 import com.mcsfeb.tvalarmclock.player.ProfileAutoSelector
+import com.mcsfeb.tvalarmclock.player.LaunchResult
 import com.mcsfeb.tvalarmclock.player.StreamingLauncher
 import com.mcsfeb.tvalarmclock.service.WakeUpHelper
 import com.mcsfeb.tvalarmclock.ui.theme.*
@@ -94,7 +95,7 @@ class AlarmActivity : ComponentActivity() {
                     },
                     onLaunchContent = {
                         if (streamingApp != null) {
-                            when (launchMode) {
+                            val result: LaunchResult = when (launchMode) {
                                 LaunchMode.DEEP_LINK -> {
                                     if (contentId.isNotEmpty()) {
                                         streamingLauncher.launch(streamingApp, contentId)
@@ -105,6 +106,9 @@ class AlarmActivity : ComponentActivity() {
                                 LaunchMode.SEARCH -> {
                                     if (searchQuery.isNotEmpty()) {
                                         streamingLauncher.launchWithSearch(streamingApp, searchQuery)
+                                    } else if (contentTitle.isNotEmpty()) {
+                                        // Fallback: search by content title if no explicit search query
+                                        streamingLauncher.launchWithSearch(streamingApp, contentTitle)
                                     } else {
                                         streamingLauncher.launchAppOnly(streamingApp)
                                     }
@@ -113,6 +117,7 @@ class AlarmActivity : ComponentActivity() {
                                     streamingLauncher.launchAppOnly(streamingApp)
                                 }
                             }
+                            android.util.Log.d("AlarmActivity", result.displayMessage())
                             finish()
                         }
                     }
