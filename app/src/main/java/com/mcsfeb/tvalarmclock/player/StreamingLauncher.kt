@@ -11,6 +11,7 @@ import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
 import com.mcsfeb.tvalarmclock.data.config.DeepLinkConfig
+import com.mcsfeb.tvalarmclock.data.config.DeepLinkResolver
 import com.mcsfeb.tvalarmclock.data.model.StreamingApp
 
 /**
@@ -54,6 +55,8 @@ class StreamingLauncher(
     init {
         // Load the deep link config on first use
         DeepLinkConfig.load(context)
+        // Load cached resolver results so verified formats are available immediately
+        DeepLinkResolver.load(context)
     }
 
     /**
@@ -96,6 +99,7 @@ class StreamingLauncher(
         val className = StreamingApp.getIntentClassName(app)
 
         // Try each URI format until one works
+        // Note: formats are already in 3-tier order (verified → config → hardcoded)
         for (format in formats) {
             val deepLinkUrl = format.replace("{id}", contentId)
             val intent = buildIntentFromConfig(deepLinkUrl, installedPackage, extras, className)
@@ -110,15 +114,17 @@ class StreamingLauncher(
                 return LaunchResult.Success(app.displayName, deepLinkUrl)
             } catch (e: ActivityNotFoundException) {
                 Log.w(TAG, "Format failed for ${app.displayName}: $deepLinkUrl → ${e.message}")
-                // Try next format
+                // Report failure to resolver so this format is deprioritized
+                DeepLinkResolver.reportFailure(context, app, format)
             } catch (e: Exception) {
                 Log.w(TAG, "Format error for ${app.displayName}: $deepLinkUrl → ${e.message}")
-                // Try next format
+                DeepLinkResolver.reportFailure(context, app, format)
             }
         }
 
-        // All deep link formats failed → fall back to app-only launch
-        Log.w(TAG, "All deep link formats failed for ${app.displayName}, falling back to app-only")
+        // All deep link formats failed → re-probe this app for new formats
+        Log.w(TAG, "All deep link formats failed for ${app.displayName}, re-probing and falling back")
+        DeepLinkResolver.probeApp(context, app)
         return launchAppOnly(app)
     }
 
@@ -236,6 +242,14 @@ class StreamingLauncher(
      */
     fun getInstalledApps(): List<StreamingApp> {
         return StreamingApp.entries.filter { findInstalledPackage(it) != null }
+    }
+
+    /**
+     * Get a status summary of the deep link resolver for UI display.
+     * Returns a pair of (verified app count, total verified formats).
+     */
+    fun getResolverStatus(): Pair<Int, Int> {
+        return Pair(DeepLinkResolver.getVerifiedAppCount(), DeepLinkResolver.getTotalVerifiedFormats())
     }
 
     /**

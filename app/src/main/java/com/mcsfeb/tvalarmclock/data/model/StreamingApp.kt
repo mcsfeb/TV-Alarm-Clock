@@ -1,6 +1,7 @@
 package com.mcsfeb.tvalarmclock.data.model
 
 import com.mcsfeb.tvalarmclock.data.config.DeepLinkConfig
+import com.mcsfeb.tvalarmclock.data.config.DeepLinkResolver
 
 /**
  * StreamingApp - Every streaming service we support launching.
@@ -214,14 +215,42 @@ enum class StreamingApp(
 
         /**
          * Get ALL deep link formats for an app, ordered by preference.
-         * Reads from config file first; falls back to hardcoded default.
          *
-         * The launcher tries these in order until one works:
-         * Format 1 (preferred) → Format 2 (alternate) → Format 3 (fallback) → app-only
+         * THREE-TIER SYSTEM:
+         *   Tier 1: VERIFIED formats from DeepLinkResolver (proven to work on THIS device)
+         *   Tier 2: CONFIG formats from JSON file (community-curated)
+         *   Tier 3: HARDCODED format from enum (last resort)
+         *
+         * The launcher tries these in order until one works.
+         * Duplicates are removed (verified format won't appear twice).
          */
         fun getDeepLinkFormats(app: StreamingApp): List<String> {
+            val result = mutableListOf<String>()
+
+            // Tier 1: Verified formats (proven working on this device)
+            val verified = DeepLinkResolver.getVerifiedFormats(app)
+            result += verified
+
+            // Tier 2: Config formats (from JSON file)
             val fromConfig = DeepLinkConfig.getDeepLinkFormats(app.name)
-            return if (fromConfig.isNotEmpty()) fromConfig else listOf(app.deepLinkFormat)
+            result += fromConfig
+
+            // Tier 3: Hardcoded format (enum default)
+            result += app.deepLinkFormat
+
+            // Deduplicate while preserving priority order
+            return result.distinct()
+        }
+
+        /**
+         * Get ALL possible candidate formats from every source (for probing).
+         * This is used by DeepLinkResolver to test every possible format.
+         */
+        fun getAllCandidateFormats(app: StreamingApp): List<String> {
+            val candidates = mutableListOf<String>()
+            candidates += DeepLinkConfig.getDeepLinkFormats(app.name)
+            candidates += app.deepLinkFormat
+            return candidates.distinct()
         }
 
         /**

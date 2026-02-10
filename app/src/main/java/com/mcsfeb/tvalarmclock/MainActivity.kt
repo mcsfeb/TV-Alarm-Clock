@@ -3,10 +3,12 @@ package com.mcsfeb.tvalarmclock
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.*
 import com.mcsfeb.tvalarmclock.data.config.DeepLinkConfig
+import com.mcsfeb.tvalarmclock.data.config.DeepLinkResolver
 import com.mcsfeb.tvalarmclock.data.repository.AlarmRepository
 import com.mcsfeb.tvalarmclock.data.repository.ContentRepository
 import com.mcsfeb.tvalarmclock.player.LaunchResult
@@ -37,6 +39,12 @@ class MainActivity : ComponentActivity() {
 
         // Load deep link config from JSON before anything else
         DeepLinkConfig.load(this)
+
+        // Probe all installed streaming apps to discover working deep link formats.
+        // This runs resolveActivity() checks (no apps are actually launched).
+        // Results are cached so future launches use verified formats first.
+        DeepLinkResolver.probeAll(this)
+        Log.d("MainActivity", "DeepLinkResolver: ${DeepLinkResolver.getVerifiedAppCount()} apps verified, ${DeepLinkResolver.getTotalVerifiedFormats()} total formats")
 
         alarmScheduler = AlarmScheduler(this)
         streamingLauncher = StreamingLauncher(this)
