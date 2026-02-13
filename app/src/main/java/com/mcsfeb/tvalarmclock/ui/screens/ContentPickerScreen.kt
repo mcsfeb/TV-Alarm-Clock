@@ -30,25 +30,15 @@ import com.mcsfeb.tvalarmclock.ui.components.*
 import com.mcsfeb.tvalarmclock.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.IOException
 
-/**
- * ContentPickerScreen - Where the user picks what to wake up to.
- *
- * FLOW:
- * 1. Pick a streaming app
- * 2. Based on the app type:
- *    - LIVE TV app: Browse channel guide
- *    - ON-DEMAND app: Search for shows/movies
- *    - Either: "Just open the app" option always available
- */
 @Composable
 fun ContentPickerScreen(
     installedApps: List<StreamingApp>,
     onContentSelected: (StreamingContent) -> Unit,
-    onTestLaunch: (StreamingApp, String) -> Unit,
-    onTestLaunchAppOnly: (StreamingApp) -> Unit,
     onBack: () -> Unit,
-    launchResultMessage: String?
+    launchResultMessage: String?,
+    onTestLaunch: ((StreamingContent) -> Unit)? = null
 ) {
     // Navigation state
     var selectedApp by remember { mutableStateOf<StreamingApp?>(null) }
@@ -58,6 +48,7 @@ fun ContentPickerScreen(
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<ContentInfo>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
+    var searchError by remember { mutableStateOf<String?>(null) }
     var selectedShow by remember { mutableStateOf<ContentInfo?>(null) }
     var seasons by remember { mutableStateOf<List<SeasonInfo>>(emptyList()) }
     var selectedSeason by remember { mutableStateOf<SeasonInfo?>(null) }
@@ -74,6 +65,8 @@ fun ContentPickerScreen(
     var manualContentId by remember { mutableStateOf("") }
     var manualTitle by remember { mutableStateOf("") }
 
+    val currentApp = selectedApp
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -88,7 +81,7 @@ fun ContentPickerScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TVButton(
                     text = when {
-                        selectedApp == null -> "Home"
+                        currentApp == null -> "Home"
                         else -> "Back"
                     },
                     color = AlarmBlue,
@@ -102,7 +95,7 @@ fun ContentPickerScreen(
                                 episodes = emptyList()
                             }
                             browseMode != null -> browseMode = null
-                            selectedApp != null -> {
+                            currentApp != null -> {
                                 selectedApp = null
                                 browseMode = null
                                 searchQuery = ""
@@ -115,17 +108,18 @@ fun ContentPickerScreen(
                 )
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(
-                    text = when {
-                        selectedShow != null -> selectedShow!!.title
-                        browseMode == BrowseMode.CHANNEL_GUIDE -> "${selectedApp!!.displayName} Channels"
-                        browseMode == BrowseMode.SEARCH -> "Search ${selectedApp!!.displayName}"
-                        browseMode == BrowseMode.MANUAL -> "Manual Entry"
-                        selectedApp != null -> selectedApp!!.displayName
-                        else -> "Pick a Streaming App"
+                    text = when (val app = currentApp) {
+                        null -> "Pick a Streaming App"
+                        else -> when (browseMode) {
+                            null -> app.displayName
+                            BrowseMode.CHANNEL_GUIDE -> "${app.displayName} Channels"
+                            BrowseMode.SEARCH -> selectedShow?.title ?: "Search ${app.displayName}"
+                            BrowseMode.MANUAL -> "Manual Entry"
+                        }
                     },
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (selectedApp != null) Color(selectedApp!!.colorHex) else AlarmBlue,
+                    color = if (currentApp != null) Color(currentApp.colorHex) else AlarmBlue,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -136,7 +130,7 @@ fun ContentPickerScreen(
             // ================================================================
             // STEP 1: Pick a streaming app
             // ================================================================
-            if (selectedApp == null) {
+            if (currentApp == null) {
                 Text("Which app should the alarm open?", fontSize = 18.sp, color = TextSecondary)
                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -162,6 +156,7 @@ fun ContentPickerScreen(
                                 searchResults = emptyList()
                                 selectedCategory = null
                                 selectedShow = null
+                                searchError = null
                             }
                         )
                     }
@@ -171,8 +166,7 @@ fun ContentPickerScreen(
             // STEP 2: Choose browse mode
             // ================================================================
             else if (browseMode == null) {
-                val app = selectedApp!!
-                val hasChannels = ChannelGuide.getChannelsForApp(app).isNotEmpty()
+                val hasChannels = ChannelGuide.getChannelsForApp(currentApp).isNotEmpty()
 
                 Text("How do you want to find content?", fontSize = 18.sp, color = TextSecondary)
                 Spacer(modifier = Modifier.height(16.dp))
@@ -180,14 +174,14 @@ fun ContentPickerScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     ModeCard(
                         title = "Just Open App",
-                        description = "Opens ${app.displayName} to its home screen.",
+                        description = "Opens ${currentApp.displayName} to its home screen.",
                         color = AlarmTeal,
                         onClick = {
                             onContentSelected(
                                 StreamingContent(
-                                    app = app,
+                                    app = currentApp,
                                     contentId = "",
-                                    title = "Open ${app.displayName}",
+                                    title = "Open ${currentApp.displayName}",
                                     launchMode = LaunchMode.APP_ONLY
                                 )
                             )
@@ -206,7 +200,7 @@ fun ContentPickerScreen(
                     ModeCard(
                         title = "Search Shows",
                         description = "Search for a show or movie by name.",
-                        color = Color(app.colorHex),
+                        color = Color(currentApp.colorHex),
                         onClick = { browseMode = BrowseMode.SEARCH }
                     )
 
@@ -222,8 +216,7 @@ fun ContentPickerScreen(
             // CHANNEL GUIDE
             // ================================================================
             else if (browseMode == BrowseMode.CHANNEL_GUIDE) {
-                val app = selectedApp!!
-                val categories = remember(app) { ChannelGuide.getCategoriesForApp(app) }
+                val categories = remember(currentApp) { ChannelGuide.getCategoriesForApp(currentApp) }
 
                 if (selectedCategory == null) {
                     Text("Pick a category:", fontSize = 18.sp, color = TextSecondary)
@@ -237,12 +230,12 @@ fun ContentPickerScreen(
                                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
                                 colors = ClickableSurfaceDefaults.colors(
                                     containerColor = DarkSurface,
-                                    focusedContainerColor = Color(app.colorHex).copy(alpha = 0.3f)
+                                    focusedContainerColor = Color(currentApp.colorHex).copy(alpha = 0.3f)
                                 ),
                                 border = ClickableSurfaceDefaults.border(
                                     focusedBorder = androidx.tv.material3.Border(
                                         border = androidx.compose.foundation.BorderStroke(
-                                            2.dp, Color(app.colorHex)
+                                            2.dp, Color(currentApp.colorHex)
                                         ),
                                         shape = RoundedCornerShape(12.dp)
                                     )
@@ -269,15 +262,15 @@ fun ContentPickerScreen(
                     Text("All channels:", fontSize = 16.sp, color = TextSecondary)
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    val allChannels = remember(app) { ChannelGuide.getChannelsForApp(app) }
+                    val allChannels = remember(currentApp) { ChannelGuide.getChannelsForApp(currentApp) }
                     ChannelList(
                         channels = allChannels,
-                        app = app,
+                        app = currentApp,
                         onChannelPicked = { channel ->
-                            val channelId = ChannelGuide.getChannelId(channel, app) ?: ""
+                            val channelId = ChannelGuide.getChannelId(channel, currentApp) ?: ""
                             onContentSelected(
                                 StreamingContent(
-                                    app = app,
+                                    app = currentApp,
                                     contentId = channelId,
                                     title = channel.name,
                                     launchMode = if (channelId.isNotBlank()) LaunchMode.DEEP_LINK
@@ -287,8 +280,8 @@ fun ContentPickerScreen(
                         }
                     )
                 } else {
-                    val categoryChannels = remember(app, selectedCategory) {
-                        ChannelGuide.getChannelsForAppByCategory(app, selectedCategory!!)
+                    val categoryChannels = remember(currentApp, selectedCategory) {
+                        ChannelGuide.getChannelsForAppByCategory(currentApp, selectedCategory!!)
                     }
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -303,19 +296,19 @@ fun ContentPickerScreen(
                             selectedCategory!!.displayName,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(app.colorHex)
+                            color = Color(currentApp.colorHex)
                         )
                     }
                     Spacer(modifier = Modifier.height(12.dp))
 
                     ChannelList(
                         channels = categoryChannels,
-                        app = app,
+                        app = currentApp,
                         onChannelPicked = { channel ->
-                            val channelId = ChannelGuide.getChannelId(channel, app) ?: ""
+                            val channelId = ChannelGuide.getChannelId(channel, currentApp) ?: ""
                             onContentSelected(
                                 StreamingContent(
-                                    app = app,
+                                    app = currentApp,
                                     contentId = channelId,
                                     title = channel.name,
                                     launchMode = if (channelId.isNotBlank()) LaunchMode.DEEP_LINK
@@ -330,22 +323,23 @@ fun ContentPickerScreen(
             // SEARCH MODE
             // ================================================================
             else if (browseMode == BrowseMode.SEARCH && selectedShow == null) {
-                val app = selectedApp!!
-
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     BasicTextField(
                         value = searchQuery,
-                        onValueChange = { searchQuery = it },
+                        onValueChange = {
+                            searchQuery = it
+                            searchError = null
+                        },
                         textStyle = TextStyle(fontSize = 20.sp, color = TextPrimary),
-                        cursorBrush = SolidColor(Color(app.colorHex)),
+                        cursorBrush = SolidColor(Color(currentApp.colorHex)),
                         modifier = Modifier
                             .weight(1f)
                             .border(
                                 2.dp,
-                                Color(app.colorHex).copy(alpha = 0.5f),
+                                Color(currentApp.colorHex).copy(alpha = 0.5f),
                                 RoundedCornerShape(12.dp)
                             )
                             .background(DarkSurface, RoundedCornerShape(12.dp))
@@ -364,30 +358,43 @@ fun ContentPickerScreen(
                     Spacer(modifier = Modifier.width(12.dp))
                     TVButton(
                         text = if (isSearching) "Searching..." else "Search",
-                        color = Color(app.colorHex),
+                        color = Color(currentApp.colorHex),
                         enabled = searchQuery.isNotBlank() && !isSearching,
-                        onClick = { isSearching = true }
+                        onClick = {
+                            isSearching = true
+                            searchError = null
+                        }
                     )
                 }
 
                 if (isSearching) {
                     LaunchedEffect(searchQuery) {
-                        val results = withContext(Dispatchers.IO) {
-                            TmdbApi.searchContent(searchQuery)
-                        }
-                        searchResults = results
-                        isSearching = false
-
-                        // Fetch watch providers for each result in the background
-                        withContext(Dispatchers.IO) {
-                            val providers = mutableMapOf<Int, List<StreamingApp>>()
-                            for (result in results.take(5)) { // Only fetch for top 5 to limit API calls
-                                val apps = TmdbApi.getWatchProviderApps(result.tmdbId, result.mediaType)
-                                if (apps.isNotEmpty()) {
-                                    providers[result.tmdbId] = apps
-                                }
+                        try {
+                            val results = withContext(Dispatchers.IO) {
+                                TmdbApi.searchContent(searchQuery)
                             }
-                            watchProviders = providers
+                            searchResults = results
+                            if (results.isEmpty()) {
+                                searchError = "No results found."
+                            }
+
+                            // Fetch watch providers for each result in the background
+                            withContext(Dispatchers.IO) {
+                                val providers = mutableMapOf<Int, List<StreamingApp>>()
+                                for (result in results.take(5)) { // Only fetch for top 5 to limit API calls
+                                    val apps = TmdbApi.getWatchProviderApps(result.tmdbId, result.mediaType)
+                                    if (apps.isNotEmpty()) {
+                                        providers[result.tmdbId] = apps
+                                    }
+                                }
+                                watchProviders = providers
+                            }
+                        } catch (_: IOException) {
+                            searchError = "Network error. Please try again."
+                        } catch (_: Exception) {
+                            searchError = "An unexpected error occurred."
+                        } finally {
+                            isSearching = false
                         }
                     }
                 }
@@ -406,16 +413,16 @@ fun ContentPickerScreen(
                         items(searchResults) { content ->
                             SearchResultCard(
                                 content = content,
-                                app = app,
+                                app = currentApp,
                                 availableOn = watchProviders[content.tmdbId],
                                 onClick = {
                                     if (content.mediaType == MediaType.MOVIE) {
                                         val contentId = ContentIdMapper.getContentId(
-                                            content.tmdbId, app
+                                            content.tmdbId, currentApp
                                         ) ?: ""
                                         onContentSelected(
                                             StreamingContent(
-                                                app = app,
+                                                app = currentApp,
                                                 contentId = contentId,
                                                 title = "${content.title} (${content.year})",
                                                 launchMode = if (contentId.isNotBlank())
@@ -430,11 +437,11 @@ fun ContentPickerScreen(
                             )
                         }
                     }
-                } else if (!isSearching && searchQuery.isNotBlank()) {
+                } else if (searchError != null) {
                     Text(
-                        "No results found. Try a different search.",
+                        text = searchError!!,
                         fontSize = 16.sp,
-                        color = TextSecondary
+                        color = AlarmFiringRed
                     )
                 }
             }
@@ -442,14 +449,20 @@ fun ContentPickerScreen(
             // SEASON/EPISODE PICKER
             // ================================================================
             else if (browseMode == BrowseMode.SEARCH && selectedShow != null) {
-                val app = selectedApp!!
                 val show = selectedShow!!
 
                 LaunchedEffect(show.tmdbId) {
-                    val loadedSeasons = withContext(Dispatchers.IO) {
-                        TmdbApi.getSeasons(show.tmdbId)
+                    try {
+                        isLoadingEpisodes = true
+                        val loadedSeasons = withContext(Dispatchers.IO) {
+                            TmdbApi.getSeasons(show.tmdbId)
+                        }
+                        seasons = loadedSeasons
+                    } catch (_: IOException) {
+                        searchError = "Network error loading seasons."
+                    } finally {
+                        isLoadingEpisodes = false
                     }
-                    seasons = loadedSeasons
                 }
 
                 Text(
@@ -480,13 +493,14 @@ fun ContentPickerScreen(
                                 onClick = {
                                     selectedSeason = season
                                     isLoadingEpisodes = true
+                                    searchError = null
                                 },
                                 modifier = Modifier.height(48.dp),
                                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
                                 colors = ClickableSurfaceDefaults.colors(
-                                    containerColor = if (isSelected) Color(app.colorHex)
+                                    containerColor = if (isSelected) Color(currentApp.colorHex)
                                     else DarkSurface,
-                                    focusedContainerColor = Color(app.colorHex).copy(alpha = 0.7f)
+                                    focusedContainerColor = Color(currentApp.colorHex).copy(alpha = 0.7f)
                                 ),
                                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f)
                             ) {
@@ -507,15 +521,20 @@ fun ContentPickerScreen(
 
                     if (isLoadingEpisodes && selectedSeason != null) {
                         LaunchedEffect(selectedSeason!!.seasonNumber) {
-                            val loadedEpisodes = withContext(Dispatchers.IO) {
-                                TmdbApi.getEpisodes(show.tmdbId, selectedSeason!!.seasonNumber)
+                            try {
+                                val loadedEpisodes = withContext(Dispatchers.IO) {
+                                    TmdbApi.getEpisodes(show.tmdbId, selectedSeason!!.seasonNumber)
+                                }
+                                episodes = loadedEpisodes
+                            } catch (_: IOException) {
+                                searchError = "Network error loading episodes."
+                            } finally {
+                                isLoadingEpisodes = false
                             }
-                            episodes = loadedEpisodes
-                            isLoadingEpisodes = false
                         }
                     }
 
-                    if (selectedSeason != null && episodes.isNotEmpty()) {
+                    if (episodes.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             "${selectedSeason!!.name} - ${episodes.size} episodes:",
@@ -528,21 +547,20 @@ fun ContentPickerScreen(
                             items(episodes) { episode ->
                                 EpisodeCard(
                                     episode = episode,
-                                    app = app,
+                                    app = currentApp,
                                     onClick = {
                                         val contentId = ContentIdMapper.getContentId(
-                                            show.tmdbId, app
+                                            show.tmdbId, currentApp
                                         ) ?: ""
                                         val title = "${show.title} S${episode.seasonNumber}E${episode.episodeNumber}"
-                                        // Always use SEARCH as default — it's the most reliable
                                         onContentSelected(
                                             StreamingContent(
-                                                app = app,
+                                                app = currentApp,
                                                 contentId = contentId,
                                                 title = title,
                                                 launchMode = if (contentId.isNotBlank())
                                                     LaunchMode.DEEP_LINK else LaunchMode.SEARCH,
-                                                searchQuery = "${show.title} Season ${episode.seasonNumber}"
+                                                searchQuery = show.title // JUST THE SHOW TITLE
                                             )
                                         )
                                     }
@@ -552,21 +570,24 @@ fun ContentPickerScreen(
                     } else if (isLoadingEpisodes) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Text("Loading episodes...", fontSize = 16.sp, color = TextSecondary)
+                    } else if (searchError != null) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(searchError!!, fontSize = 16.sp, color = AlarmFiringRed)
                     }
-                } else {
+                } else if (isLoadingEpisodes) {
                     Text("Loading seasons...", fontSize = 16.sp, color = TextSecondary)
+                } else if (searchError != null) {
+                    Text(searchError!!, fontSize = 16.sp, color = AlarmFiringRed)
                 }
             }
             // ================================================================
             // MANUAL ENTRY
             // ================================================================
             else if (browseMode == BrowseMode.MANUAL) {
-                val app = selectedApp!!
-
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(2.dp, Color(app.colorHex).copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                        .border(2.dp, Color(currentApp.colorHex).copy(alpha = 0.3f), RoundedCornerShape(12.dp))
                         .background(DarkSurface, RoundedCornerShape(12.dp))
                         .padding(24.dp)
                 ) {
@@ -600,17 +621,17 @@ fun ContentPickerScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        Text("${app.contentIdLabel}:", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                        Text(app.description, fontSize = 12.sp, color = TextSecondary.copy(alpha = 0.7f))
+                        Text("${currentApp.contentIdLabel}:", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Text(currentApp.description, fontSize = 12.sp, color = TextSecondary.copy(alpha = 0.7f))
                         Spacer(modifier = Modifier.height(6.dp))
                         BasicTextField(
                             value = manualContentId,
                             onValueChange = { manualContentId = it },
                             textStyle = TextStyle(fontSize = 18.sp, color = TextPrimary),
-                            cursorBrush = SolidColor(Color(app.colorHex)),
+                            cursorBrush = SolidColor(Color(currentApp.colorHex)),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .border(1.dp, Color(app.colorHex).copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(currentApp.colorHex).copy(alpha = 0.3f), RoundedCornerShape(8.dp))
                                 .background(DarkSurfaceVariant, RoundedCornerShape(8.dp))
                                 .padding(14.dp),
                             decorationBox = { innerTextField ->
@@ -630,11 +651,11 @@ fun ContentPickerScreen(
                                 onClick = {
                                     onContentSelected(
                                         StreamingContent(
-                                            app = app,
+                                            app = currentApp,
                                             contentId = manualContentId.trim(),
                                             title = manualTitle.ifEmpty {
-                                                if (manualContentId.isNotBlank()) "${app.displayName} Content"
-                                                else "Open ${app.displayName}"
+                                                if (manualContentId.isNotBlank()) "${currentApp.displayName} Content"
+                                                else "Open ${currentApp.displayName}"
                                             },
                                             launchMode = if (manualContentId.isNotBlank())
                                                 LaunchMode.DEEP_LINK else LaunchMode.APP_ONLY
@@ -642,18 +663,38 @@ fun ContentPickerScreen(
                                     )
                                 }
                             )
-                            if (manualContentId.isNotBlank()) {
+                            if (onTestLaunch != null && manualContentId.isNotBlank()) {
                                 TVButton(
                                     text = "Test Launch",
-                                    color = Color(app.colorHex),
-                                    onClick = { onTestLaunch(app, manualContentId.trim()) }
+                                    color = Color(currentApp.colorHex),
+                                    onClick = {
+                                        onTestLaunch(
+                                            StreamingContent(
+                                                app = currentApp,
+                                                contentId = manualContentId.trim(),
+                                                title = manualTitle,
+                                                launchMode = LaunchMode.DEEP_LINK
+                                            )
+                                        )
+                                    }
                                 )
                             }
-                            TVButton(
-                                text = "Test Open",
-                                color = Color(app.colorHex),
-                                onClick = { onTestLaunchAppOnly(app) }
-                            )
+                            if (onTestLaunch != null) {
+                                TVButton(
+                                    text = "Test Open",
+                                    color = Color(currentApp.colorHex),
+                                    onClick = {
+                                        onTestLaunch(
+                                            StreamingContent(
+                                                app = currentApp,
+                                                contentId = "",
+                                                title = "",
+                                                launchMode = LaunchMode.APP_ONLY
+                                            )
+                                        )
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -666,7 +707,7 @@ fun ContentPickerScreen(
                 Text(
                     text = launchResultMessage,
                     fontSize = 16.sp,
-                    color = if (launchResultMessage.startsWith("\u2713")) AlarmActiveGreen
+                    color = if (launchResultMessage.startsWith("✓")) AlarmActiveGreen
                     else AlarmFiringRed,
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center

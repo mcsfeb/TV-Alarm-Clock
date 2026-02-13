@@ -90,7 +90,7 @@
     },
 
     "HBO_MAX": {
-      "_comment": "Max (formerly HBO Max). Package changed from com.hbo.hbonow to com.wbd.stream. Deep links use play.max.com.",
+      "_comment": "Max (formerly HBO Max). Package changed from com.hbo.hbonow to com.wbd.stream. Using null searchUrl forces fallback to native ACTION_SEARCH intent.",
       "packageName": "com.wbd.stream",
       "altPackageNames": ["com.hbo.hbonow", "com.hbo.max.android.tv"],
       "deepLinkFormats": [
@@ -98,7 +98,7 @@
         "https://play.max.com/movie/{id}",
         "https://play.hbomax.com/episode/{id}"
       ],
-      "searchUrl": "https://play.max.com/search?q={query}",
+      "searchUrl": null,
       "intentExtras": {},
       "intentClassName": null,
       "needsForceStopBefore": false,

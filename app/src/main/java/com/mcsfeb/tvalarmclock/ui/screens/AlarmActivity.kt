@@ -14,46 +14,46 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mcsfeb.tvalarmclock.data.model.LaunchMode
 import com.mcsfeb.tvalarmclock.data.model.StreamingApp
+import com.mcsfeb.tvalarmclock.data.model.StreamingContent
 import com.mcsfeb.tvalarmclock.player.ProfileAutoSelector
-import com.mcsfeb.tvalarmclock.player.LaunchResult
 import com.mcsfeb.tvalarmclock.player.StreamingLauncher
+import com.mcsfeb.tvalarmclock.service.AlarmScheduler
 import com.mcsfeb.tvalarmclock.service.WakeUpHelper
+import com.mcsfeb.tvalarmclock.ui.components.TVButton
 import com.mcsfeb.tvalarmclock.ui.theme.*
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.*
 
 /**
- * AlarmActivity - The full-screen alarm display.
+ * AlarmActivity - Full-screen alarm display when the alarm fires.
  *
- * When the alarm fires:
- * 1. Shows "ALARM!" with the current time and what content will play
- * 2. Counts down from 10 seconds
- * 3. Auto-launches the selected streaming app/content
- * 4. Press any button to dismiss WITHOUT launching
- *
- * If no streaming content was selected, it just shows the alarm screen.
+ * Shows:
+ * - Flashing "ALARM!" text
+ * - Current time
+ * - What content will be launched (app + show name)
+ * - Auto-countdown to launch (10 seconds)
+ * - "Launch Now" button to skip the countdown
+ * - "Snooze 5 min" button to delay and go back to sleep
+ * - "Dismiss" button to cancel entirely
  */
 class AlarmActivity : ComponentActivity() {
 
     private lateinit var streamingLauncher: StreamingLauncher
+    private lateinit var alarmScheduler: AlarmScheduler
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Enable auto-profile-select for alarm launches
-        // This auto-clicks past "Who's Watching?" profile screens
-        // so the show starts playing even when the user is asleep
         streamingLauncher = StreamingLauncher(this, autoProfileSelect = true)
+        alarmScheduler = AlarmScheduler(this)
 
-        // Keep the screen on
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
             @Suppress("DEPRECATION")
@@ -66,60 +66,44 @@ class AlarmActivity : ComponentActivity() {
             setTurnScreenOn(true)
         }
 
-        // Read content info from the intent
+        val alarmId = intent.getIntExtra("ALARM_ID", 0)
         val contentAppName = intent.getStringExtra("CONTENT_APP")
         val contentId = intent.getStringExtra("CONTENT_ID") ?: ""
         val contentTitle = intent.getStringExtra("CONTENT_TITLE") ?: ""
-        val contentMode = intent.getStringExtra("CONTENT_MODE") ?: "APP_ONLY"
+        val contentModeName = intent.getStringExtra("CONTENT_MODE") ?: "APP_ONLY"
         val searchQuery = intent.getStringExtra("CONTENT_SEARCH_QUERY") ?: ""
 
         val streamingApp = contentAppName?.let {
-            try { StreamingApp.valueOf(it) } catch (e: Exception) { null }
+            try { StreamingApp.valueOf(it) } catch (_: Exception) { null }
         }
+        val launchMode = try { LaunchMode.valueOf(contentModeName) } catch (_: Exception) { LaunchMode.APP_ONLY }
 
-        val launchMode = try {
-            LaunchMode.valueOf(contentMode)
-        } catch (e: Exception) { LaunchMode.APP_ONLY }
+        val content = streamingApp?.let {
+            StreamingContent(it, contentId, contentTitle, launchMode, searchQuery)
+        }
 
         setContent {
             TVAlarmClockTheme {
                 AlarmFiringScreen(
-                    streamingApp = streamingApp,
-                    contentTitle = contentTitle,
+                    streamingContent = content,
                     onDismiss = {
-                        // User pressed a button to dismiss - cancel any pending
-                        // auto-profile-select key presses since they're awake
                         ProfileAutoSelector.cancelPending()
                         WakeUpHelper.releaseWakeLock()
                         finish()
                     },
                     onLaunchContent = {
-                        if (streamingApp != null) {
-                            val result: LaunchResult = when (launchMode) {
-                                LaunchMode.DEEP_LINK -> {
-                                    if (contentId.isNotEmpty()) {
-                                        streamingLauncher.launch(streamingApp, contentId)
-                                    } else {
-                                        streamingLauncher.launchAppOnly(streamingApp)
-                                    }
-                                }
-                                LaunchMode.SEARCH -> {
-                                    if (searchQuery.isNotEmpty()) {
-                                        streamingLauncher.launchWithSearch(streamingApp, searchQuery)
-                                    } else if (contentTitle.isNotEmpty()) {
-                                        // Fallback: search by content title if no explicit search query
-                                        streamingLauncher.launchWithSearch(streamingApp, contentTitle)
-                                    } else {
-                                        streamingLauncher.launchAppOnly(streamingApp)
-                                    }
-                                }
-                                LaunchMode.APP_ONLY -> {
-                                    streamingLauncher.launchAppOnly(streamingApp)
-                                }
-                            }
-                            android.util.Log.d("AlarmActivity", result.displayMessage())
-                            finish()
+                        content?.let {
+                            streamingLauncher.launch(it)
                         }
+                        finish()
+                    },
+                    onSnooze = {
+                        // Schedule a new alarm 5 minutes from now
+                        val snoozeTime = System.currentTimeMillis() + 5 * 60 * 1000L
+                        alarmScheduler.schedule(snoozeTime, alarmId = alarmId)
+                        ProfileAutoSelector.cancelPending()
+                        WakeUpHelper.releaseWakeLock()
+                        finish()
                     }
                 )
             }
@@ -127,17 +111,13 @@ class AlarmActivity : ComponentActivity() {
     }
 }
 
-/**
- * AlarmFiringScreen - The visual alarm display with countdown to content launch.
- */
 @Composable
 fun AlarmFiringScreen(
-    streamingApp: StreamingApp?,
-    contentTitle: String,
+    streamingContent: StreamingContent?,
     onDismiss: () -> Unit,
-    onLaunchContent: () -> Unit
+    onLaunchContent: () -> Unit,
+    onSnooze: () -> Unit
 ) {
-    // Flashing animation
     val infiniteTransition = rememberInfiniteTransition(label = "flash")
     val alpha by infiniteTransition.animateFloat(
         initialValue = 1f,
@@ -149,11 +129,9 @@ fun AlarmFiringScreen(
         label = "flashAlpha"
     )
 
-    // Current time
     var currentTime by remember { mutableStateOf(getCurrentTime()) }
 
-    // Countdown timer (10 seconds if content is set, otherwise no countdown)
-    var countdown by remember { mutableIntStateOf(if (streamingApp != null) 10 else -1) }
+    var countdown by remember { mutableIntStateOf(if (streamingContent != null) 10 else -1) }
     var dismissed by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -173,13 +151,6 @@ fun AlarmFiringScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .onKeyEvent { keyEvent ->
-                if (keyEvent.type == KeyEventType.KeyDown) {
-                    dismissed = true
-                    onDismiss()
-                    true
-                } else false
-            }
             .focusable(),
         contentAlignment = Alignment.Center
     ) {
@@ -187,7 +158,6 @@ fun AlarmFiringScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Big flashing ALARM text
             Text(
                 text = "ALARM!",
                 fontSize = 100.sp,
@@ -198,7 +168,6 @@ fun AlarmFiringScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Current time
             Text(
                 text = currentTime,
                 fontSize = 56.sp,
@@ -209,40 +178,84 @@ fun AlarmFiringScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // What's about to launch
-            if (streamingApp != null && !dismissed) {
+            if (streamingContent != null && !dismissed) {
                 Text(
                     text = "Opening in $countdown seconds...",
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(streamingApp.colorHex),
+                    color = Color(streamingContent.app.colorHex),
                     textAlign = TextAlign.Center
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "${streamingApp.displayName}: $contentTitle",
+                    text = "${streamingContent.app.displayName}: ${streamingContent.title}",
                     fontSize = 22.sp,
                     color = Color.White.copy(alpha = 0.8f),
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(32.dp))
 
-                Text(
-                    text = "Press any button to cancel and dismiss",
-                    fontSize = 18.sp,
-                    color = Color.Gray,
-                    textAlign = TextAlign.Center
-                )
+                // Action buttons row
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TVButton(
+                        text = "Launch Now",
+                        color = Color(streamingContent.app.colorHex),
+                        onClick = {
+                            dismissed = true
+                            onLaunchContent()
+                        }
+                    )
+
+                    TVButton(
+                        text = "Snooze 5 min",
+                        color = AlarmSnoozeOrange,
+                        onClick = {
+                            dismissed = true
+                            onSnooze()
+                        }
+                    )
+
+                    TVButton(
+                        text = "Dismiss",
+                        color = TextSecondary,
+                        onClick = {
+                            dismissed = true
+                            onDismiss()
+                        }
+                    )
+                }
             } else {
-                Text(
-                    text = "Press any button to dismiss",
-                    fontSize = 24.sp,
-                    color = Color.Gray,
-                    textAlign = TextAlign.Center
-                )
+                // No content assigned or dismissed - just show dismiss/snooze
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TVButton(
+                        text = "Snooze 5 min",
+                        color = AlarmSnoozeOrange,
+                        onClick = {
+                            dismissed = true
+                            onSnooze()
+                        }
+                    )
+
+                    TVButton(
+                        text = "Dismiss",
+                        color = TextSecondary,
+                        onClick = {
+                            dismissed = true
+                            onDismiss()
+                        }
+                    )
+                }
             }
         }
     }

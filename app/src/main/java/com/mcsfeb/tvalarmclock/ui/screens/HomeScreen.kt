@@ -11,59 +11,41 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mcsfeb.tvalarmclock.data.model.AlarmItem
+import com.mcsfeb.tvalarmclock.data.model.StreamingContent
 import com.mcsfeb.tvalarmclock.ui.components.*
 import com.mcsfeb.tvalarmclock.ui.theme.*
-import java.text.SimpleDateFormat
-import java.util.*
-
-/**
- * AlarmItem - Represents a single alarm in the list.
- */
-data class AlarmItem(
-    val id: Int,
-    val hour: Int,
-    val minute: Int,
-    val isActive: Boolean,
-    val label: String = ""
-) {
-    /** Formatted time string like "7:30 AM" */
-    fun formattedTime(): String {
-        val cal = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, hour)
-            set(Calendar.MINUTE, minute)
-        }
-        val formatter = SimpleDateFormat("h:mm a", Locale.getDefault())
-        return formatter.format(cal.time)
-    }
-}
 
 /**
  * HomeScreen - The main screen of the TV Alarm Clock app.
  *
  * Shows:
  * - A live clock (current time)
- * - List of alarms (with add/delete/toggle)
+ * - List of alarms (with add/delete/toggle/edit)
  * - Time picker for adding new alarms
  * - "Test Alarm" button that fires immediately
- * - Selected streaming content info
+ * - Selected streaming content info (for the next alarm to be created)
  * - Button to pick streaming app
  */
 @Composable
 fun HomeScreen(
     alarms: List<AlarmItem>,
-    onAddAlarm: (hour: Int, minute: Int) -> Unit,
+    onAddAlarm: (hour: Int, minute: Int, content: StreamingContent?) -> Unit,
     onDeleteAlarm: (AlarmItem) -> Unit,
     onToggleAlarm: (AlarmItem) -> Unit,
     onTestAlarm: () -> Unit,
     onPickStreamingApp: () -> Unit,
     onOpenAccessibilitySettings: () -> Unit,
     isAccessibilityEnabled: Boolean,
-    selectedAppName: String?
+    contentForNewAlarm: StreamingContent?,
+    onContentForNewAlarmSelected: (StreamingContent) -> Unit,
+    onEditAlarmContent: ((AlarmItem) -> Unit)? = null
 ) {
     var showTimePicker by remember { mutableStateOf(false) }
 
@@ -100,13 +82,13 @@ fun HomeScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Streaming content card
+                // Streaming content card for the NEXT alarm
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(0.85f)
                         .border(
                             width = 2.dp,
-                            color = if (selectedAppName != null) AlarmTeal else DarkSurfaceVariant,
+                            color = if (contentForNewAlarm != null) AlarmTeal else DarkSurfaceVariant,
                             shape = RoundedCornerShape(16.dp)
                         )
                         .background(DarkSurface, RoundedCornerShape(16.dp))
@@ -117,17 +99,17 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = if (selectedAppName != null) "Wake Up To" else "No App Selected",
+                            text = if (contentForNewAlarm != null) "Next Alarm Will Open" else "No App Selected",
                             fontSize = 16.sp,
-                            color = if (selectedAppName != null) AlarmTeal else TextSecondary
+                            color = if (contentForNewAlarm != null) AlarmTeal else TextSecondary
                         )
-                        if (selectedAppName != null) {
+                        if (contentForNewAlarm != null) {
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = selectedAppName,
+                                text = "${contentForNewAlarm.app.displayName}: ${contentForNewAlarm.title}",
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = TextPrimary,
+                                color = Color(contentForNewAlarm.app.colorHex),
                                 textAlign = TextAlign.Center,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
@@ -219,7 +201,7 @@ fun HomeScreen(
                 if (showTimePicker) {
                     TimePicker(
                         onTimeSet = { hour24, minute ->
-                            onAddAlarm(hour24, minute)
+                            onAddAlarm(hour24, minute, contentForNewAlarm)
                             showTimePicker = false
                         }
                     )
@@ -249,7 +231,10 @@ fun HomeScreen(
                             AlarmCard(
                                 alarm = alarm,
                                 onToggle = { onToggleAlarm(alarm) },
-                                onDelete = { onDeleteAlarm(alarm) }
+                                onDelete = { onDeleteAlarm(alarm) },
+                                onEditContent = onEditAlarmContent?.let { callback ->
+                                    { callback(alarm) }
+                                }
                             )
                         }
                     }

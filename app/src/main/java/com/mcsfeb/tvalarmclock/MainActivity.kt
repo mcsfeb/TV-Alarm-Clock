@@ -9,13 +9,14 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.*
 import com.mcsfeb.tvalarmclock.data.config.DeepLinkConfig
 import com.mcsfeb.tvalarmclock.data.config.DeepLinkResolver
+import com.mcsfeb.tvalarmclock.data.model.AlarmItem
+import com.mcsfeb.tvalarmclock.data.model.StreamingContent
 import com.mcsfeb.tvalarmclock.data.repository.AlarmRepository
 import com.mcsfeb.tvalarmclock.data.repository.ContentRepository
 import com.mcsfeb.tvalarmclock.player.LaunchResult
 import com.mcsfeb.tvalarmclock.player.ProfileAutoSelector
 import com.mcsfeb.tvalarmclock.player.StreamingLauncher
 import com.mcsfeb.tvalarmclock.service.AlarmScheduler
-import com.mcsfeb.tvalarmclock.ui.screens.AlarmItem
 import com.mcsfeb.tvalarmclock.ui.screens.ContentPickerScreen
 import com.mcsfeb.tvalarmclock.ui.screens.HomeScreen
 import com.mcsfeb.tvalarmclock.ui.theme.TVAlarmClockTheme
@@ -25,7 +26,9 @@ import java.util.*
  * MainActivity - The entry point of the TV Alarm Clock app.
  *
  * Handles navigation between HomeScreen and ContentPickerScreen.
- * Uses AlarmRepository and ContentRepository for persistence.
+ * Supports two content picker flows:
+ *   1. Picking content for the NEXT new alarm (contentForNewAlarm)
+ *   2. Editing content for an EXISTING alarm (editingAlarmId)
  */
 class MainActivity : ComponentActivity() {
 
@@ -40,9 +43,7 @@ class MainActivity : ComponentActivity() {
         // Load deep link config from JSON before anything else
         DeepLinkConfig.load(this)
 
-        // Probe all installed streaming apps to discover working deep link formats.
-        // This runs resolveActivity() checks (no apps are actually launched).
-        // Results are cached so future launches use verified formats first.
+        // Probe all installed streaming apps to discover working deep link formats
         DeepLinkResolver.probeAll(this)
         Log.d("MainActivity", "DeepLinkResolver: ${DeepLinkResolver.getVerifiedAppCount()} apps verified, ${DeepLinkResolver.getTotalVerifiedFormats()} total formats")
 
@@ -54,9 +55,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             TVAlarmClockTheme {
                 var alarms by remember { mutableStateOf(alarmRepo.loadAlarms()) }
-                var selectedContent by remember { mutableStateOf(contentRepo.loadContent()) }
+                var contentForNewAlarm by remember { mutableStateOf<StreamingContent?>(contentRepo.loadContent()) }
                 var launchResultMessage by remember { mutableStateOf<String?>(null) }
                 var currentScreen by remember { mutableStateOf("home") }
+
+                // Track which alarm we're editing (null = picking for new alarm)
+                var editingAlarmId by remember { mutableIntStateOf(-1) }
 
                 val installedApps = remember { streamingLauncher.getInstalledApps() }
 
@@ -64,17 +68,14 @@ class MainActivity : ComponentActivity() {
                     "home" -> {
                         HomeScreen(
                             alarms = alarms,
-                            onAddAlarm = { hour, minute ->
+                            onAddAlarm = { hour, minute, content ->
                                 val newId = (alarms.maxOfOrNull { it.id } ?: 0) + 1
-                                val contentLabel = selectedContent?.let {
-                                    "${it.app.displayName}: ${it.title}"
-                                } ?: ""
                                 val newAlarm = AlarmItem(
                                     id = newId,
                                     hour = hour,
                                     minute = minute,
                                     isActive = true,
-                                    label = contentLabel
+                                    streamingContent = content
                                 )
                                 alarms = alarms + newAlarm
                                 alarmRepo.saveAlarms(alarms)
@@ -101,14 +102,24 @@ class MainActivity : ComponentActivity() {
                             },
                             onPickStreamingApp = {
                                 launchResultMessage = null
+                                editingAlarmId = -1  // Not editing, picking for new alarm
                                 currentScreen = "content_picker"
                             },
                             onOpenAccessibilitySettings = {
                                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                             },
                             isAccessibilityEnabled = ProfileAutoSelector.isServiceEnabled(),
-                            selectedAppName = selectedContent?.let {
-                                "${it.app.displayName}: ${it.title}"
+                            contentForNewAlarm = contentForNewAlarm,
+                            onContentForNewAlarmSelected = {
+                                contentForNewAlarm = it
+                                contentRepo.saveContent(it)
+                                currentScreen = "home"
+                            },
+                            onEditAlarmContent = { alarm ->
+                                // User tapped edit on an existing alarm - go to content picker
+                                launchResultMessage = null
+                                editingAlarmId = alarm.id
+                                currentScreen = "content_picker"
                             }
                         )
                     }
@@ -116,23 +127,31 @@ class MainActivity : ComponentActivity() {
                     "content_picker" -> {
                         ContentPickerScreen(
                             installedApps = installedApps,
-                            onContentSelected = { content ->
-                                selectedContent = content
-                                contentRepo.saveContent(content)
-                                val label = "${content.app.displayName}: ${content.title}"
-                                alarms = alarms.map { it.copy(label = label) }
-                                alarmRepo.saveAlarms(alarms)
+                            onContentSelected = { selectedContent ->
+                                if (editingAlarmId > 0) {
+                                    // Update the existing alarm's content
+                                    alarms = alarms.map { alarm ->
+                                        if (alarm.id == editingAlarmId) {
+                                            alarm.copy(streamingContent = selectedContent)
+                                        } else alarm
+                                    }
+                                    alarmRepo.saveAlarms(alarms)
+                                    editingAlarmId = -1
+                                } else {
+                                    // Update the default content for new alarms
+                                    contentForNewAlarm = selectedContent
+                                    contentRepo.saveContent(selectedContent)
+                                }
                                 currentScreen = "home"
                             },
-                            onTestLaunch = { app, contentId ->
-                                val result = streamingLauncher.launch(app, contentId)
+                            onTestLaunch = { content ->
+                                val result = streamingLauncher.launch(content)
                                 launchResultMessage = formatResult(result)
                             },
-                            onTestLaunchAppOnly = { app ->
-                                val result = streamingLauncher.launchAppOnly(app)
-                                launchResultMessage = formatResult(result)
+                            onBack = {
+                                editingAlarmId = -1
+                                currentScreen = "home"
                             },
-                            onBack = { currentScreen = "home" },
                             launchResultMessage = launchResultMessage
                         )
                     }

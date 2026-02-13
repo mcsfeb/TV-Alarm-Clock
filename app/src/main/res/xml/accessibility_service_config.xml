@@ -7,6 +7,6 @@
     android:accessibilityEventTypes="typeWindowStateChanged"
     android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows"
     android:canRetrieveWindowContent="true"
-    android:canPerformGestures="false"
+    android:canPerformGestures="true"
     android:notificationTimeout="500"
     android:settingsActivity="com.mcsfeb.tvalarmclock.MainActivity" />

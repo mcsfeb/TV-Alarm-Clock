@@ -8,22 +8,37 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.mcsfeb.tvalarmclock.ui.screens.AlarmItem
+import com.mcsfeb.tvalarmclock.data.model.AlarmItem
 import com.mcsfeb.tvalarmclock.ui.theme.*
 
 /**
- * AlarmCard - Shows a single alarm in the list with toggle and delete.
+ * AlarmCard - Shows a single alarm in the list.
+ *
+ * Each alarm displays:
+ * - The time (e.g., "7:30 AM")
+ * - What content it will launch (e.g., "Netflix: Stranger Things")
+ * - Toggle ON/OFF button
+ * - Edit button to change the alarm's assigned content
+ * - Delete button
  */
 @Composable
 fun AlarmCard(
     alarm: AlarmItem,
     onToggle: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onEditContent: (() -> Unit)? = null
 ) {
+    val contentColor = if (alarm.isActive) {
+        alarm.streamingContent?.let { Color(it.app.colorHex) } ?: AlarmTeal
+    } else {
+        TextSecondary.copy(alpha = 0.6f)
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -46,15 +61,25 @@ fun AlarmCard(
                     fontWeight = FontWeight.Bold,
                     color = if (alarm.isActive) TextPrimary else TextSecondary
                 )
-                if (alarm.label.isNotBlank()) {
-                    Text(
-                        text = alarm.label,
-                        fontSize = 14.sp,
-                        color = if (alarm.isActive) AlarmTeal else TextSecondary.copy(alpha = 0.6f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+
+                Text(
+                    text = alarm.getLabel(),
+                    fontSize = 14.sp,
+                    color = contentColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // Edit content button - lets user change what this alarm opens
+            if (onEditContent != null) {
+                TVButton(
+                    text = "\u270E",  // Pencil icon
+                    color = AlarmTeal,
+                    compact = true,
+                    onClick = onEditContent
+                )
+                Spacer(modifier = Modifier.width(8.dp))
             }
 
             TVButton(

@@ -1,13 +1,16 @@
 package com.mcsfeb.tvalarmclock.data.repository
 
 import android.content.Context
-import com.mcsfeb.tvalarmclock.ui.screens.AlarmItem
+import com.mcsfeb.tvalarmclock.data.model.AlarmItem
+import com.mcsfeb.tvalarmclock.data.model.LaunchMode
+import com.mcsfeb.tvalarmclock.data.model.StreamingApp
+import com.mcsfeb.tvalarmclock.data.model.StreamingContent // Import StreamingContent
 
 /**
  * AlarmRepository - Saves and loads alarms from SharedPreferences.
  *
- * Format: "id|hour|minute|active|label" for each alarm, separated by ";;".
- * Simple and doesn't need Room database yet.
+ * Format: "id|hour|minute|active|hasContent|appOrdinal|contentId|title|launchModeOrdinal|searchQuery"
+ * (hasContent and subsequent fields are optional)
  */
 class AlarmRepository(context: Context) {
 
@@ -15,7 +18,10 @@ class AlarmRepository(context: Context) {
 
     fun saveAlarms(alarms: List<AlarmItem>) {
         val encoded = alarms.joinToString(";;") { alarm ->
-            "${alarm.id}|${alarm.hour}|${alarm.minute}|${alarm.isActive}|${alarm.label}"
+            val base = "${alarm.id}|${alarm.hour}|${alarm.minute}|${alarm.isActive}"
+            alarm.streamingContent?.let { content ->
+                "$base|true|${content.app.ordinal}|${content.contentId}|${content.title}|${content.launchMode.ordinal}|${content.searchQuery}"
+            } ?: "$base|false"
         }
         prefs.edit().putString("alarms_list", encoded).apply()
     }
@@ -27,16 +33,34 @@ class AlarmRepository(context: Context) {
             encoded.split(";;").mapNotNull { entry ->
                 val parts = entry.split("|")
                 if (parts.size >= 4) {
-                    AlarmItem(
-                        id = parts[0].toInt(),
-                        hour = parts[1].toInt(),
-                        minute = parts[2].toInt(),
-                        isActive = parts[3].toBoolean(),
-                        label = if (parts.size >= 5) parts[4] else ""
-                    )
+                    val id = parts[0].toInt()
+                    val hour = parts[1].toInt()
+                    val minute = parts[2].toInt()
+                    val isActive = parts[3].toBoolean()
+
+                    val streamingContent = if (parts.size >= 5 && parts[4].toBoolean()) {
+                        // Content exists
+                        if (parts.size >= 10) { // Check for minimum required parts for content
+                            val app = StreamingApp.entries[parts[5].toInt()]
+                            val contentId = parts[6]
+                            val title = parts[7]
+                            val launchMode = LaunchMode.entries[parts[8].toInt()]
+                            val searchQuery = parts[9]
+                            StreamingContent(app, contentId, title, launchMode, searchQuery)
+                        } else {
+                            // Malformed content data, return null for streamingContent
+                            null
+                        }
+                    } else {
+                        null // No content or hasContent is false
+                    }
+
+                    AlarmItem(id, hour, minute, isActive, streamingContent)
                 } else null
             }
         } catch (e: Exception) {
+            // Log the error for debugging, then return empty list to prevent crash
+            // Log.e("AlarmRepository", "Error loading alarms", e)
             emptyList()
         }
     }

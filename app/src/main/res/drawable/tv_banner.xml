@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- TV Banner (320x180dp) - Shown in the Android TV launcher/home screen.
-     Dark navy with the app's blue accent color and branding. -->
+     Dark navy with the app's blue accent color and branding, incorporating the clock/TV motif. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Dark background -->
     <item>
@@ -9,17 +9,87 @@
             <corners android:radius="8dp" />
         </shape>
     </item>
-    <!-- Blue accent bar at the bottom -->
-    <item android:top="164dp">
-        <shape android:shape="rectangle">
-            <solid android:color="#90CAF9" />
-            <corners android:bottomLeftRadius="8dp" android:bottomRightRadius="8dp" />
-        </shape>
+
+    <!-- Stylized TV shape as a backdrop for the icon -->
+    <item android:left="40dp" android:right="40dp" android:top="20dp" android:bottom="20dp">
+        <vector
+            android:width="240dp"
+            android:height="140dp"
+            android:viewportWidth="240"
+            android:viewportHeight="140">
+            <path
+                android:fillColor="#1A237E"
+                android:pathData="M0,10 L240,10 A10,10 0 0,1 240,20 L240,130 A10,10 0 0,1 230,140 L10,140 A10,10 0 0,1 0,130 L0,20 A10,10 0 0,1 10,10 Z" />
+            <path
+                android:fillColor="#263238"
+                android:pathData="M15,20 L225,20 L225,125 L15,125 Z" />
+        </vector>
     </item>
-    <!-- Teal accent stripe -->
-    <item android:top="160dp" android:bottom="16dp">
-        <shape android:shape="rectangle">
-            <solid android:color="#80CBC4" />
-        </shape>
+
+    <!-- Alarm clock icon on top of the TV screen -->
+    <item android:gravity="center">
+        <vector
+            android:width="60dp"
+            android:height="60dp"
+            android:viewportWidth="108"
+            android:viewportHeight="108">
+
+            <!-- Left alarm bell -->
+            <path
+                android:fillColor="#90CAF9"
+                android:pathData="M32,28 C32,28 28,24 26,26 C24,28 28,32 28,32 Z" />
+            <path
+                android:strokeColor="#90CAF9"
+                android:strokeWidth="5"
+                android:strokeLineCap="round"
+                android:pathData="M30,26 L36,33" />
+
+            <!-- Right alarm bell -->
+            <path
+                android:fillColor="#90CAF9"
+                android:pathData="M76,28 C76,28 80,24 82,26 C84,28 80,32 80,32 Z" />
+            <path
+                android:strokeColor="#90CAF9"
+                android:strokeWidth="5"
+                android:strokeLineCap="round"
+                android:pathData="M78,26 L72,33" />
+
+            <!-- Clock body - outer ring -->
+            <path
+                android:fillColor="#90CAF9"
+                android:pathData="M54,30 A26,26 0 1,1 53.99,30 Z" />
+
+            <!-- Clock body - inner dark circle -->
+            <path
+                android:fillColor="#1A237E"
+                android:pathData="M54,33 A23,23 0 1,1 53.99,33 Z" />
+
+            <!-- Clock face - subtle ring -->
+            <path
+                android:fillColor="#0D47A1"
+                android:pathData="M54,34 A22,22 0 1,1 53.99,34 Z" />
+
+            <!-- Play button triangle (the "streaming" part) -->
+            <path
+                android:fillColor="#80CBC4"
+                android:pathData="M48,46 L48,64 L64,55 Z" />
+
+            <!-- Center dot -->
+            <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M54,55 A2,2 0 1,1 53.99,55 Z" />
+
+            <!-- Bottom stand / legs -->
+            <path
+                android:strokeColor="#90CAF9"
+                android:strokeWidth="5"
+                android:strokeLineCap="round"
+                android:pathData="M42,77 L38,82" />
+            <path
+                android:strokeColor="#90CAF9"
+                android:strokeWidth="5"
+                android:strokeLineCap="round"
+                android:pathData="M66,77 L70,82" />
+        </vector>
     </item>
 </layer-list>
