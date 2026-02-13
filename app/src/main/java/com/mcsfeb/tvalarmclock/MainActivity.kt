@@ -2,7 +2,6 @@ package com.mcsfeb.tvalarmclock
 
 import android.content.Intent
 import android.os.Bundle
-import android.provider.Settings
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -12,11 +11,11 @@ import com.mcsfeb.tvalarmclock.data.config.DeepLinkResolver
 import com.mcsfeb.tvalarmclock.data.model.AlarmItem
 import com.mcsfeb.tvalarmclock.data.model.StreamingContent
 import com.mcsfeb.tvalarmclock.data.repository.AlarmRepository
-import com.mcsfeb.tvalarmclock.data.repository.ContentRepository
 import com.mcsfeb.tvalarmclock.player.LaunchResult
-import com.mcsfeb.tvalarmclock.player.ProfileAutoSelector
 import com.mcsfeb.tvalarmclock.player.StreamingLauncher
 import com.mcsfeb.tvalarmclock.service.AlarmScheduler
+import com.mcsfeb.tvalarmclock.ui.screens.AlarmActivity
+import com.mcsfeb.tvalarmclock.ui.screens.AlarmSetupScreen
 import com.mcsfeb.tvalarmclock.ui.screens.ContentPickerScreen
 import com.mcsfeb.tvalarmclock.ui.screens.HomeScreen
 import com.mcsfeb.tvalarmclock.ui.theme.TVAlarmClockTheme
@@ -25,42 +24,47 @@ import java.util.*
 /**
  * MainActivity - The entry point of the TV Alarm Clock app.
  *
- * Handles navigation between HomeScreen and ContentPickerScreen.
- * Supports two content picker flows:
- *   1. Picking content for the NEXT new alarm (contentForNewAlarm)
- *   2. Editing content for an EXISTING alarm (editingAlarmId)
+ * Navigation flow:
+ *   HomeScreen -> AlarmSetupScreen -> ContentPickerScreen -> back to AlarmSetupScreen -> HomeScreen
+ *
+ * Screens:
+ * - "home"            : Clock + alarm list
+ * - "alarm_setup"     : Pick time + pick content (new or edit existing)
+ * - "content_picker"  : Browse streaming apps, search shows, pick episodes
  */
 class MainActivity : ComponentActivity() {
 
     private lateinit var alarmScheduler: AlarmScheduler
     private lateinit var streamingLauncher: StreamingLauncher
     private lateinit var alarmRepo: AlarmRepository
-    private lateinit var contentRepo: ContentRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         // Load deep link config from JSON before anything else
         DeepLinkConfig.load(this)
-
-        // Probe all installed streaming apps to discover working deep link formats
         DeepLinkResolver.probeAll(this)
-        Log.d("MainActivity", "DeepLinkResolver: ${DeepLinkResolver.getVerifiedAppCount()} apps verified, ${DeepLinkResolver.getTotalVerifiedFormats()} total formats")
+        Log.d("MainActivity", "DeepLinkResolver: ${DeepLinkResolver.getVerifiedAppCount()} apps verified")
 
         alarmScheduler = AlarmScheduler(this)
         streamingLauncher = StreamingLauncher(this)
         alarmRepo = AlarmRepository(this)
-        contentRepo = ContentRepository(this)
 
         setContent {
             TVAlarmClockTheme {
                 var alarms by remember { mutableStateOf(alarmRepo.loadAlarms()) }
-                var contentForNewAlarm by remember { mutableStateOf<StreamingContent?>(contentRepo.loadContent()) }
-                var launchResultMessage by remember { mutableStateOf<String?>(null) }
                 var currentScreen by remember { mutableStateOf("home") }
+                var launchResultMessage by remember { mutableStateOf<String?>(null) }
 
-                // Track which alarm we're editing (null = picking for new alarm)
+                // Alarm being edited (-1 = creating new)
                 var editingAlarmId by remember { mutableIntStateOf(-1) }
+
+                // Time for the alarm being set up
+                var setupHour by remember { mutableIntStateOf(7) }
+                var setupMinute by remember { mutableIntStateOf(0) }
+
+                // Content chosen for the alarm being set up
+                var setupContent by remember { mutableStateOf<StreamingContent?>(null) }
 
                 val installedApps = remember { streamingLauncher.getInstalledApps() }
 
@@ -68,18 +72,19 @@ class MainActivity : ComponentActivity() {
                     "home" -> {
                         HomeScreen(
                             alarms = alarms,
-                            onAddAlarm = { hour, minute, content ->
-                                val newId = (alarms.maxOfOrNull { it.id } ?: 0) + 1
-                                val newAlarm = AlarmItem(
-                                    id = newId,
-                                    hour = hour,
-                                    minute = minute,
-                                    isActive = true,
-                                    streamingContent = content
-                                )
-                                alarms = alarms + newAlarm
-                                alarmRepo.saveAlarms(alarms)
-                                scheduleAlarm(newAlarm)
+                            onAddAlarm = {
+                                // Start fresh alarm setup
+                                editingAlarmId = -1
+                                setupContent = null
+                                currentScreen = "alarm_setup"
+                            },
+                            onEditAlarm = { alarm ->
+                                // Edit existing alarm
+                                editingAlarmId = alarm.id
+                                setupHour = alarm.hour
+                                setupMinute = alarm.minute
+                                setupContent = alarm.streamingContent
+                                currentScreen = "alarm_setup"
                             },
                             onDeleteAlarm = { alarm ->
                                 alarmScheduler.cancel(alarm.id)
@@ -97,29 +102,69 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             onTestAlarm = {
-                                val triggerTime = System.currentTimeMillis() + 2_000
-                                alarmScheduler.schedule(triggerTime, alarmId = 9999)
-                            },
-                            onPickStreamingApp = {
+                                // Launch AlarmActivity directly for instant test
+                                val testIntent = Intent(this@MainActivity, AlarmActivity::class.java).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    putExtra("ALARM_ID", 9999)
+                                    // Use first active alarm's content, if any
+                                    val firstActive = alarms.firstOrNull { it.isActive }
+                                    firstActive?.streamingContent?.let { content ->
+                                        putExtra("CONTENT_APP", content.app.name)
+                                        putExtra("CONTENT_ID", content.contentId)
+                                        putExtra("CONTENT_TITLE", content.title)
+                                        putExtra("CONTENT_MODE", content.launchMode.name)
+                                        putExtra("CONTENT_SEARCH_QUERY", content.searchQuery)
+                                    }
+                                }
+                                startActivity(testIntent)
+                            }
+                        )
+                    }
+
+                    "alarm_setup" -> {
+                        AlarmSetupScreen(
+                            editingHour = if (editingAlarmId > 0) setupHour else null,
+                            editingMinute = if (editingAlarmId > 0) setupMinute else null,
+                            selectedContent = setupContent,
+                            onPickContent = {
                                 launchResultMessage = null
-                                editingAlarmId = -1  // Not editing, picking for new alarm
                                 currentScreen = "content_picker"
                             },
-                            onOpenAccessibilitySettings = {
-                                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                            },
-                            isAccessibilityEnabled = ProfileAutoSelector.isServiceEnabled(),
-                            contentForNewAlarm = contentForNewAlarm,
-                            onContentForNewAlarmSelected = {
-                                contentForNewAlarm = it
-                                contentRepo.saveContent(it)
+                            onSave = { hour, minute, content ->
+                                if (editingAlarmId > 0) {
+                                    // Update existing alarm
+                                    alarms = alarms.map { alarm ->
+                                        if (alarm.id == editingAlarmId) {
+                                            val updated = alarm.copy(
+                                                hour = hour,
+                                                minute = minute,
+                                                streamingContent = content,
+                                                isActive = true
+                                            )
+                                            scheduleAlarm(updated)
+                                            updated
+                                        } else alarm
+                                    }
+                                } else {
+                                    // Create new alarm
+                                    val newId = (alarms.maxOfOrNull { it.id } ?: 0) + 1
+                                    val newAlarm = AlarmItem(
+                                        id = newId,
+                                        hour = hour,
+                                        minute = minute,
+                                        isActive = true,
+                                        streamingContent = content
+                                    )
+                                    alarms = alarms + newAlarm
+                                    scheduleAlarm(newAlarm)
+                                }
+                                alarmRepo.saveAlarms(alarms)
+                                editingAlarmId = -1
                                 currentScreen = "home"
                             },
-                            onEditAlarmContent = { alarm ->
-                                // User tapped edit on an existing alarm - go to content picker
-                                launchResultMessage = null
-                                editingAlarmId = alarm.id
-                                currentScreen = "content_picker"
+                            onBack = {
+                                editingAlarmId = -1
+                                currentScreen = "home"
                             }
                         )
                     }
@@ -128,29 +173,15 @@ class MainActivity : ComponentActivity() {
                         ContentPickerScreen(
                             installedApps = installedApps,
                             onContentSelected = { selectedContent ->
-                                if (editingAlarmId > 0) {
-                                    // Update the existing alarm's content
-                                    alarms = alarms.map { alarm ->
-                                        if (alarm.id == editingAlarmId) {
-                                            alarm.copy(streamingContent = selectedContent)
-                                        } else alarm
-                                    }
-                                    alarmRepo.saveAlarms(alarms)
-                                    editingAlarmId = -1
-                                } else {
-                                    // Update the default content for new alarms
-                                    contentForNewAlarm = selectedContent
-                                    contentRepo.saveContent(selectedContent)
-                                }
-                                currentScreen = "home"
+                                setupContent = selectedContent
+                                currentScreen = "alarm_setup"
                             },
                             onTestLaunch = { content ->
                                 val result = streamingLauncher.launch(content)
-                                launchResultMessage = formatResult(result)
+                                launchResultMessage = result.displayMessage()
                             },
                             onBack = {
-                                editingAlarmId = -1
-                                currentScreen = "home"
+                                currentScreen = "alarm_setup"
                             },
                             launchResultMessage = launchResultMessage
                         )
@@ -171,7 +202,6 @@ class MainActivity : ComponentActivity() {
             }
         }
         alarmScheduler.schedule(cal.timeInMillis, alarmId = alarm.id)
+        Log.d("MainActivity", "Scheduled alarm ${alarm.id} for ${cal.time}")
     }
-
-    private fun formatResult(result: LaunchResult): String = result.displayMessage()
 }
