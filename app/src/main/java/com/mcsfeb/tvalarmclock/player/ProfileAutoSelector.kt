@@ -3,27 +3,19 @@ package com.mcsfeb.tvalarmclock.player
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import android.view.KeyEvent
 import com.mcsfeb.tvalarmclock.service.AlarmAccessibilityService
 import com.mcsfeb.tvalarmclock.service.UiController
 
 /**
- * ProfileAutoSelector - Now a high-level UI automation scheduler.
- *
- * This object is responsible for scheduling UI automation tasks after an app is launched.
- * It uses the powerful UiController to interact with other apps via the Accessibility Service.
- *
- * PRIMARY TASKS:
- * 1. scheduleAutoSelect(): Clicks past "Who's Watching?" profile screens.
- * 2. scheduleSearchAndPlay(): A multi-step process to search for content and play it.
+ * ProfileAutoSelector - Orchestrates UI automation for profile selection and content search.
  */
 object ProfileAutoSelector {
 
-    private const val TAG = "UiAutomation"
+    private const val TAG = "AutomationManager"
     private val handler = Handler(Looper.getMainLooper())
-    private val uiController: UiController? get() = AlarmAccessibilityService.instance?.uiController
+    private val ui: UiController? get() = AlarmAccessibilityService.instance?.uiController
 
-    private val appsWithProfileScreens = setOf(
+    private val appsWithProfiles = setOf(
         "com.netflix.ninja",
         "com.wbd.stream",
         "com.hbo.hbonow",
@@ -32,79 +24,106 @@ object ProfileAutoSelector {
         "com.disney.disneyplus",
         "com.amazon.amazonvideo.livingroom",
         "com.peacocktv.peacockandroid",
-        "com.cbs.ott",
-        "com.apple.atve.androidtv.appletv"
+        "com.apple.atve.androidtv.appletv",
+        "com.paramountplus.mobile",
+        "com.cbs.ott"
     )
 
-    fun isServiceEnabled(): Boolean = AlarmAccessibilityService.isRunning()
-
-    fun scheduleAutoSelect(packageName: String, initialDelayMs: Long = 4000L) {
-        if (packageName !in appsWithProfileScreens) {
-            Log.d(TAG, "Skipping auto-select for $packageName (not a profile-screen app)")
-            return
-        }
-        if (!isServiceEnabled()) {
-            Log.w(TAG, "Cannot auto-select profile: Accessibility Service not running.")
-            return
-        }
-
-        Log.d(TAG, "Scheduling 5 click attempts for $packageName")
-        // Staggered attempts to click the focused profile.
-        (0..4).forEach { i ->
-            val delay = initialDelayMs + (i * 2500L)
-            handler.postDelayed({
-                Log.d(TAG, "Attempt ${i + 1} to select profile...")
-                uiController?.clickFocusedElement()
-            }, delay)
-        }
+    fun isServiceEnabled(): Boolean {
+        val enabled = AlarmAccessibilityService.isRunning()
+        if (!enabled) Log.w(TAG, "Accessibility Service is NOT running!")
+        return enabled
     }
 
-    /**
-     * Schedules a sequence of UI actions to find and play content.
-     * This is the heart of the "Smart Assistant" fallback.
-     *
-     * @param searchQuery The title of the show/movie to search for.
-     * @param targetPackage The package name of the streaming app.
-     */
-    fun scheduleSearchAndPlay(searchQuery: String, targetPackage: String) {
-        if (!isServiceEnabled()) {
-            Log.e(TAG, "Cannot search-and-play: Accessibility Service not running.")
-            return
-        }
-
-        Log.d(TAG, "Scheduling search-and-play for '$searchQuery' in $targetPackage")
-
-        // The sequence of operations, with delays between each.
-        val automationSequence = listOf(
-            // Step 1: Wait for app to load, then find and click the "Search" icon/button.
-            { uiController?.findAndClick(text = "Search", packageName = targetPackage) } to 6000L,
-
-            // Step 2: Type the search query into the text field.
-            { uiController?.typeText(searchQuery) } to 2000L,
-
-            // Step 3: Wait for search results, then find and click the matching show/movie poster.
-            { uiController?.findAndClick(descriptionContains = searchQuery, packageName = targetPackage) } to 5000L,
-
-            // Step 4: Wait for content page to load, then find and click the "Play" button.
-            { uiController?.findAndClick(text = "Play", packageName = targetPackage) } to 5000L
-        )
-
-        var cumulativeDelay = 0L
-        automationSequence.forEach { (action, delay) ->
-            cumulativeDelay += delay
-            handler.postDelayed({
-                val success = action.invoke() ?: false
-                if (!success) {
-                    Log.w(TAG, "A step in the search-and-play sequence failed. Aborting.")
-                    cancelPending()
-                    // Optional: Consider a root-based fallback here if this step fails.
-                }
-            }, cumulativeDelay)
-        }
-    }
+    fun needsProfileSelect(packageName: String): Boolean = packageName in appsWithProfiles
 
     fun cancelPending() {
         handler.removeCallbacksAndMessages(null)
         Log.d(TAG, "Cancelled all pending UI automation")
+    }
+
+    /**
+     * Bypasses profile screens by attempting to click the focused element repeatedly.
+     */
+    fun scheduleAutoSelect(packageName: String, initialDelay: Long = 4000L) {
+        if (!isServiceEnabled()) return
+        Log.d(TAG, "Starting profile auto-select routine for $packageName with delay ${initialDelay}ms")
+        
+        // Many apps land on the profile screen with the last-used profile already focused.
+        // We try clicking the focus 8 times over 16 seconds to catch it as it loads.
+        for (i in 1..8) {
+            val delay = initialDelay + (i * 2000L)
+            handler.postDelayed({
+                Log.d(TAG, "Profile Click Attempt $i of 8...")
+                val success = ui?.clickFocused() ?: false
+                if (success) Log.d(TAG, "Profile Click Attempt $i: ACTION SENT")
+            }, delay)
+        }
+    }
+
+    fun runNetflixRecipe(show: String, season: String?, episode: String?) {
+        if (!isServiceEnabled()) return
+        val query = buildString {
+            append(show)
+            if (season != null) append(" S$season")
+            if (episode != null) append(" E$episode")
+        }
+        Log.d(TAG, "Running Netflix search recipe: $query")
+
+        val steps = listOf(
+            { tryClick(description = "Search") || tryClick(text = "Search") } to 7000L,
+            { ui?.typeText(query) } to 2000L,
+            { tryClick(description = show) || (ui?.clickFocused() ?: false) } to 4000L,
+            { tryClick(text = "Episodes") } to 3000L,
+            { tryClick(text = "Play") || tryClick(description = "Play") } to 3000L
+        )
+        runSteps(steps)
+    }
+
+    fun runSlingRecipe(channelName: String) {
+        if (!isServiceEnabled()) return
+        Log.d(TAG, "Running Sling search recipe: $channelName")
+
+        val steps = listOf(
+            { tryClick(text = "Search") || tryClick(description = "Search") } to 8000L,
+            { ui?.typeText(channelName) } to 2000L,
+            { tryClick(text = channelName) || (ui?.clickFocused() ?: false) } to 4000L,
+            { tryClick(text = "Watch") || tryClick(text = "Play") } to 3000L
+        )
+        runSteps(steps)
+    }
+
+    fun scheduleSearchAndPlay(searchQuery: String, targetPackage: String) {
+        if (!isServiceEnabled()) return
+        Log.d(TAG, "Running generic search fallback for '$searchQuery'")
+
+        val steps = listOf(
+            { tryClick(text = "Search", packageName = targetPackage) } to 7000L,
+            { ui?.typeText(searchQuery) } to 2000L,
+            { tryClick(text = searchQuery, packageName = targetPackage) || (ui?.clickFocused() ?: false) } to 5000L,
+            { tryClick(text = "Play") || tryClick(text = "Watch") } to 3000L
+        )
+        runSteps(steps)
+    }
+
+    /** Helper: tries findAndClick, returns false if ui is null or node not found. */
+    private fun tryClick(
+        text: String? = null,
+        description: String? = null,
+        packageName: String? = null
+    ): Boolean = ui?.findAndClick(text = text, description = description, packageName = packageName) ?: false
+
+    private fun runSteps(steps: List<Pair<() -> Any?, Long>>) {
+        var cumulativeDelay = 0L
+        steps.forEach { (action, delay) ->
+            cumulativeDelay += delay
+            handler.postDelayed({
+                try {
+                    action()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Step failed: ${e.message}")
+                }
+            }, cumulativeDelay)
+        }
     }
 }

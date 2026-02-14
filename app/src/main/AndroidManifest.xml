@@ -18,6 +18,9 @@
     <!-- See which streaming apps are installed (required on Android 11+) -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
+    <!-- Stop the app before launching to ensure it starts from a clean state -->
+    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
+
     <!-- This is a TV app -->
     <uses-feature
         android:name="android.software.leanback"

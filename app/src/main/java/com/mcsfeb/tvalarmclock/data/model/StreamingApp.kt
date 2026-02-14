@@ -5,19 +5,6 @@ import com.mcsfeb.tvalarmclock.data.config.DeepLinkResolver
 
 /**
  * StreamingApp - Every streaming service we support launching.
- *
- * Each entry has HARDCODED DEFAULTS that work as a fallback.
- * At runtime, the JSON config file (assets/deep_link_config.json) can
- * OVERRIDE these values. This means:
- *
- * - If a streaming app changes their deep link format with an update,
- *   you only need to edit the JSON file and rebuild.
- * - If the JSON file fails to load, the hardcoded defaults still work.
- * - The companion object methods (getDeepLinkFormats, getSearchUrl, etc.)
- *   always check the config first, then fall back to hardcoded values.
- *
- * IMPORTANT: These deep links are unofficial. Streaming apps can change them
- * at any time with an update. Always wrap launches in try-catch!
  */
 enum class StreamingApp(
     val displayName: String,
@@ -201,101 +188,26 @@ enum class StreamingApp(
     );
 
     companion object {
-        /** Get all apps sorted alphabetically by display name */
         fun allSorted(): List<StreamingApp> = entries.sortedBy { it.displayName }
 
-        /**
-         * Build the deep link URL by replacing {id} with actual content ID.
-         * Uses the PRIMARY format (first in config, or hardcoded default).
-         */
-        fun buildDeepLink(app: StreamingApp, contentId: String): String {
-            val format = getDeepLinkFormats(app).firstOrNull() ?: app.deepLinkFormat
-            return format.replace("{id}", contentId)
-        }
-
-        /**
-         * Get ALL deep link formats for an app, ordered by preference.
-         *
-         * THREE-TIER SYSTEM:
-         *   Tier 1: VERIFIED formats from DeepLinkResolver (proven to work on THIS device)
-         *   Tier 2: CONFIG formats from JSON file (community-curated)
-         *   Tier 3: HARDCODED format from enum (last resort)
-         *
-         * The launcher tries these in order until one works.
-         * Duplicates are removed (verified format won't appear twice).
-         */
         fun getDeepLinkFormats(app: StreamingApp): List<String> {
             val result = mutableListOf<String>()
-
-            // Tier 1: Verified formats (proven working on this device)
-            val verified = DeepLinkResolver.getVerifiedFormats(app)
-            result += verified
-
-            // Tier 2: Config formats (from JSON file)
-            val fromConfig = DeepLinkConfig.getDeepLinkFormats(app.name)
-            result += fromConfig
-
-            // Tier 3: Hardcoded format (enum default)
+            result += DeepLinkResolver.getVerifiedFormats(app)
+            result += DeepLinkConfig.getDeepLinkFormats(app.name)
             result += app.deepLinkFormat
-
-            // Deduplicate while preserving priority order
             return result.distinct()
         }
 
-        /**
-         * Get ALL possible candidate formats from every source (for probing).
-         * This is used by DeepLinkResolver to test every possible format.
-         */
-        fun getAllCandidateFormats(app: StreamingApp): List<String> {
-            val candidates = mutableListOf<String>()
-            candidates += DeepLinkConfig.getDeepLinkFormats(app.name)
-            candidates += app.deepLinkFormat
-            return candidates.distinct()
-        }
+        fun getIntentExtras(app: StreamingApp): Map<String, String> = DeepLinkConfig.getIntentExtras(app.name)
+        fun getIntentClassName(app: StreamingApp): String? = DeepLinkConfig.getIntentClassName(app.name)
+        fun needsForceStop(app: StreamingApp): Boolean = DeepLinkConfig.needsForceStop(app.name)
+        fun getAltPackageNames(app: StreamingApp): List<String> = DeepLinkConfig.getAppConfig(app.name)?.altPackageNames ?: app.altPackageNames
+        fun getPackageName(app: StreamingApp): String = DeepLinkConfig.getAppConfig(app.name)?.packageName ?: app.packageName
 
-        /**
-         * Get the search URL for an app, with {query} as placeholder.
-         * Returns null if app doesn't support search deep links.
-         */
-        fun getSearchUrl(app: StreamingApp): String? {
-            return DeepLinkConfig.getSearchUrl(app.name)
-        }
-
-        /**
-         * Get intent extras for this app (e.g., Netflix needs source=30).
-         */
-        fun getIntentExtras(app: StreamingApp): Map<String, String> {
-            return DeepLinkConfig.getIntentExtras(app.name)
-        }
-
-        /**
-         * Get the specific Activity class to target, if any.
-         */
-        fun getIntentClassName(app: StreamingApp): String? {
-            return DeepLinkConfig.getIntentClassName(app.name)
-        }
-
-        /**
-         * Check if app needs to be force-stopped before re-launching.
-         */
-        fun needsForceStop(app: StreamingApp): Boolean {
-            return DeepLinkConfig.needsForceStop(app.name)
-        }
-
-        /**
-         * Get all alt package names (from config if available, else hardcoded).
-         */
-        fun getAltPackageNames(app: StreamingApp): List<String> {
-            val config = DeepLinkConfig.getAppConfig(app.name)
-            return config?.altPackageNames ?: app.altPackageNames
-        }
-
-        /**
-         * Get the primary package name (from config if available, else hardcoded).
-         */
-        fun getPackageName(app: StreamingApp): String {
-            val config = DeepLinkConfig.getAppConfig(app.name)
-            return config?.packageName ?: app.packageName
+        /** Given a package name, find all alternatives associated with the same app. */
+        fun getAltPackageNamesForPackage(pkg: String): List<String> {
+            val app = entries.find { it.packageName == pkg || it.altPackageNames.contains(pkg) }
+            return app?.altPackageNames ?: emptyList()
         }
     }
 }

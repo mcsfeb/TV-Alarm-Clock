@@ -22,16 +22,18 @@ import com.mcsfeb.tvalarmclock.ui.theme.*
  * Each alarm displays:
  * - The time (e.g., "7:30 AM")
  * - What content it will launch (e.g., "Netflix: Stranger Things")
- * - Toggle ON/OFF button
- * - Edit button to change the alarm's assigned content
- * - Delete button
+ * - Edit button (pencil) to change time/content
+ * - ON/OFF toggle
+ * - Test button to fire this alarm instantly
+ * - Delete button (X)
  */
 @Composable
 fun AlarmCard(
     alarm: AlarmItem,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
-    onEditContent: (() -> Unit)? = null
+    onEditContent: (() -> Unit)? = null,
+    onTest: (() -> Unit)? = null
 ) {
     val contentColor = if (alarm.isActive) {
         alarm.streamingContent?.let { Color(it.app.colorHex) } ?: AlarmTeal
@@ -71,10 +73,10 @@ fun AlarmCard(
                 )
             }
 
-            // Edit content button - lets user change what this alarm opens
+            // Edit button - change time/content
             if (onEditContent != null) {
                 TVButton(
-                    text = "\u270E",  // Pencil icon
+                    text = "\u270E",
                     color = AlarmTeal,
                     compact = true,
                     onClick = onEditContent
@@ -82,6 +84,7 @@ fun AlarmCard(
                 Spacer(modifier = Modifier.width(8.dp))
             }
 
+            // ON/OFF toggle
             TVButton(
                 text = if (alarm.isActive) "ON" else "OFF",
                 color = if (alarm.isActive) AlarmActiveGreen else TextSecondary,
@@ -91,6 +94,18 @@ fun AlarmCard(
 
             Spacer(modifier = Modifier.width(8.dp))
 
+            // Test button - fire this alarm right now
+            if (onTest != null) {
+                TVButton(
+                    text = "Test",
+                    color = AlarmSnoozeOrange,
+                    compact = true,
+                    onClick = onTest
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+
+            // Delete button
             TVButton(
                 text = "\u2715",
                 color = AlarmFiringRed,

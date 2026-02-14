@@ -1,5 +1,7 @@
 package com.mcsfeb.tvalarmclock.ui.screens
 
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -9,24 +11,18 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mcsfeb.tvalarmclock.data.model.AlarmItem
+import com.mcsfeb.tvalarmclock.player.ProfileAutoSelector
 import com.mcsfeb.tvalarmclock.ui.components.*
 import com.mcsfeb.tvalarmclock.ui.theme.*
 
 /**
  * HomeScreen - Clean main screen with just the clock and alarm list.
- *
- * Shows:
- * - A live clock (current time)
- * - List of existing alarms
- * - "+ Add Alarm" button (goes to AlarmSetupScreen)
- * - "Test Alarm" button (fires alarm instantly)
- *
- * Content picking happens INSIDE the alarm setup flow, not here.
  */
 @Composable
 fun HomeScreen(
@@ -35,8 +31,11 @@ fun HomeScreen(
     onEditAlarm: (AlarmItem) -> Unit,
     onDeleteAlarm: (AlarmItem) -> Unit,
     onToggleAlarm: (AlarmItem) -> Unit,
-    onTestAlarm: () -> Unit
+    onTestAlarm: (AlarmItem) -> Unit
 ) {
+    val context = LocalContext.current
+    val isA11yEnabled = ProfileAutoSelector.isServiceEnabled()
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -70,16 +69,27 @@ fun HomeScreen(
 
                 Spacer(modifier = Modifier.height(40.dp))
 
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                TVButton(
+                    text = "+ Add Alarm",
+                    color = AlarmBlue,
+                    onClick = onAddAlarm
+                )
+                
+                if (!isA11yEnabled) {
+                    Spacer(modifier = Modifier.height(16.dp))
                     TVButton(
-                        text = "+ Add Alarm",
-                        color = AlarmBlue,
-                        onClick = onAddAlarm
-                    )
-                    TVButton(
-                        text = "Test Alarm",
+                        text = "Enable Smart Assistant",
                         color = AlarmSnoozeOrange,
-                        onClick = onTestAlarm
+                        compact = true,
+                        onClick = {
+                            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                        }
+                    )
+                    Text(
+                        "Required for reliable app launching",
+                        fontSize = 12.sp,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(top = 4.dp)
                     )
                 }
             }
@@ -123,7 +133,8 @@ fun HomeScreen(
                                 alarm = alarm,
                                 onToggle = { onToggleAlarm(alarm) },
                                 onDelete = { onDeleteAlarm(alarm) },
-                                onEditContent = { onEditAlarm(alarm) }
+                                onEditContent = { onEditAlarm(alarm) },
+                                onTest = { onTestAlarm(alarm) }
                             )
                         }
                     }

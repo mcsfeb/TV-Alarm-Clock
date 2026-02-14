@@ -101,14 +101,12 @@ class MainActivity : ComponentActivity() {
                                     alarmScheduler.cancel(alarm.id)
                                 }
                             },
-                            onTestAlarm = {
-                                // Launch AlarmActivity directly for instant test
+                            onTestAlarm = { alarm ->
+                                // Launch AlarmActivity directly for this specific alarm
                                 val testIntent = Intent(this@MainActivity, AlarmActivity::class.java).apply {
                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    putExtra("ALARM_ID", 9999)
-                                    // Use first active alarm's content, if any
-                                    val firstActive = alarms.firstOrNull { it.isActive }
-                                    firstActive?.streamingContent?.let { content ->
+                                    putExtra("ALARM_ID", alarm.id)
+                                    alarm.streamingContent?.let { content ->
                                         putExtra("CONTENT_APP", content.app.name)
                                         putExtra("CONTENT_ID", content.contentId)
                                         putExtra("CONTENT_TITLE", content.title)

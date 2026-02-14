@@ -1,6 +1,6 @@
 {
   "_comment": "Deep link configuration for TV Alarm Clock. Edit this file to fix broken deep links without changing code. Version number should be bumped whenever you change anything.",
-  "configVersion": 1,
+  "configVersion": 2,
   "lastUpdated": "2026-02-09",
 
   "apps": {
@@ -98,7 +98,7 @@
         "https://play.max.com/movie/{id}",
         "https://play.hbomax.com/episode/{id}"
       ],
-      "searchUrl": null,
+      "searchUrl": "https://play.max.com/search?q={query}",
       "intentExtras": {},
       "intentClassName": null,
       "needsForceStopBefore": false,

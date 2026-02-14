@@ -5,20 +5,14 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 
 /**
- * AlarmAccessibilityService - The backbone of the "Smart Assistant" feature.
- *
- * This service is the bridge between our app and other streaming apps. It grants
- * us the ability to read the screen and perform actions, enabling powerful UI automation.
- *
- * It now holds an instance of the UiController, which is the class that does the actual work
- * of finding and clicking buttons, typing text, etc.
- *
- * SETUP:
- * Must be enabled by the user once in Settings > Accessibility > TV Alarm Clock.
+ * AlarmAccessibilityService - Monitors foreground apps and enables UI automation.
  */
 class AlarmAccessibilityService : AccessibilityService() {
 
     lateinit var uiController: UiController
+        private set
+
+    var currentPackage: String? = null
         private set
 
     companion object {
@@ -33,21 +27,29 @@ class AlarmAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         uiController = UiController(this)
-        Log.d(TAG, "Service connected and UiController initialized.")
+        Log.i(TAG, "Alarm Accessibility Service connected and ready.")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // The UiController may need to react to events in the future,
-        // but for now, we operate on-demand.
+        if (event == null) return
+
+        // TYPE_WINDOW_STATE_CHANGED is the most reliable way to track app changes
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            val pkg = event.packageName?.toString()
+            if (pkg != null && pkg != "com.android.systemui") {
+                Log.d(TAG, "Window state changed: $pkg")
+                currentPackage = pkg
+            }
+        }
     }
 
     override fun onInterrupt() {
-        // This is called when the service is interrupted, e.g., by another service.
+        Log.w(TAG, "Accessibility Service interrupted.")
     }
 
     override fun onDestroy() {
         super.onDestroy()
         instance = null
-        Log.d(TAG, "Service destroyed.")
+        Log.i(TAG, "Accessibility Service destroyed.")
     }
 }

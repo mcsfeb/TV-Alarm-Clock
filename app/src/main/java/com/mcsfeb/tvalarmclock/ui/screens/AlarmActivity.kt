@@ -3,6 +3,7 @@ package com.mcsfeb.tvalarmclock.ui.screens
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.*
@@ -30,18 +31,11 @@ import com.mcsfeb.tvalarmclock.ui.theme.*
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 
 /**
  * AlarmActivity - Full-screen alarm display when the alarm fires.
- *
- * Shows:
- * - Flashing "ALARM!" text
- * - Current time
- * - What content will be launched (app + show name)
- * - Auto-countdown to launch (10 seconds)
- * - "Launch Now" button to skip the countdown
- * - "Snooze 5 min" button to delay and go back to sleep
- * - "Dismiss" button to cancel entirely
  */
 class AlarmActivity : ComponentActivity() {
 
@@ -51,7 +45,7 @@ class AlarmActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        streamingLauncher = StreamingLauncher(this, autoProfileSelect = true)
+        streamingLauncher = StreamingLauncher(this)
         alarmScheduler = AlarmScheduler(this)
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -82,6 +76,10 @@ class AlarmActivity : ComponentActivity() {
             StreamingContent(it, contentId, contentTitle, launchMode, searchQuery)
         }
 
+        if (!ProfileAutoSelector.isServiceEnabled()) {
+            Toast.makeText(this, "Enable 'Smart Assistant' in settings for reliable launching!", Toast.LENGTH_LONG).show()
+        }
+
         setContent {
             TVAlarmClockTheme {
                 AlarmFiringScreen(
@@ -95,10 +93,12 @@ class AlarmActivity : ComponentActivity() {
                         content?.let {
                             streamingLauncher.launch(it)
                         }
-                        finish()
+                        lifecycleScope.launch {
+                            delay(10000) // Delay for 10 seconds
+                            finish()
+                        }
                     },
                     onSnooze = {
-                        // Schedule a new alarm 5 minutes from now
                         val snoozeTime = System.currentTimeMillis() + 5 * 60 * 1000L
                         alarmScheduler.schedule(snoozeTime, alarmId = alarmId)
                         ProfileAutoSelector.cancelPending()
@@ -130,7 +130,6 @@ fun AlarmFiringScreen(
     )
 
     var currentTime by remember { mutableStateOf(getCurrentTime()) }
-
     var countdown by remember { mutableIntStateOf(if (streamingContent != null) 10 else -1) }
     var dismissed by remember { mutableStateOf(false) }
 
@@ -140,6 +139,7 @@ fun AlarmFiringScreen(
             if (countdown > 0 && !dismissed) {
                 countdown--
             } else if (countdown == 0 && !dismissed) {
+                dismissed = true // Set dismissed to true here to prevent re-triggering
                 onLaunchContent()
                 countdown = -1
             }
@@ -198,7 +198,6 @@ fun AlarmFiringScreen(
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                // Action buttons row
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -231,7 +230,6 @@ fun AlarmFiringScreen(
                     )
                 }
             } else {
-                // No content assigned or dismissed - just show dismiss/snooze
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Row(

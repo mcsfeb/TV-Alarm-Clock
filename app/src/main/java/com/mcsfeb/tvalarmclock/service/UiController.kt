@@ -6,102 +6,119 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.os.Bundle
 import android.util.Log
-import android.view.KeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
 
-class UiController(private val service: AlarmAccessibilityService) {
+/**
+ * UiController - Advanced interaction helper for Accessibility Service.
+ * Upgraded with multi-window scanning and parent-click fallbacks.
+ */
+class UiController(private val service: AccessibilityService) {
 
     companion object {
         private const val TAG = "UiController"
     }
 
-    fun findAndClick(text: String? = null, descriptionContains: String? = null, packageName: String? = null): Boolean {
-        val node = findNode(text = text, descriptionContains = descriptionContains, packageName = packageName)
-        if (node != null) {
-            Log.d(TAG, "Found node to click: ${node.text} / ${node.contentDescription}")
-            return performClick(node)
+    fun findAndClick(
+        text: String? = null,
+        description: String? = null,
+        resId: String? = null,
+        packageName: String? = null
+    ): Boolean {
+        val node = findNodeInAllWindows { node ->
+            val textMatch = text == null || node.text?.toString()?.contains(text, ignoreCase = true) == true
+            val descMatch = description == null || node.contentDescription?.toString()?.contains(description, ignoreCase = true) == true
+            val resIdMatch = resId == null || node.viewIdResourceName == resId
+            val pkgMatch = packageName == null || node.packageName == packageName
+            textMatch && descMatch && resIdMatch && pkgMatch
         }
-        Log.w(TAG, "Could not find node to click with text='$text' or description='$descriptionContains'")
-        return false
+
+        return if (node != null) {
+            Log.d(TAG, "Clicking node: [Text: ${node.text}, Desc: ${node.contentDescription}]")
+            performClick(node)
+        } else {
+            Log.w(TAG, "Node not found for click: text=$text, desc=$description")
+            false
+        }
     }
 
-    fun clickFocusedElement(): Boolean {
-        val focusedNode = findNode(isFocused = true)
-        if (focusedNode != null) {
-            return performClick(focusedNode)
+    fun clickFocused(): Boolean {
+        // Look in ALL windows for focus, not just the active one
+        val node = findNodeInAllWindows { it.isFocused }
+            ?: findNodeInAllWindows { it.isAccessibilityFocused }
+        return if (node != null) {
+            Log.d(TAG, "Clicking focused node: ${node.className}")
+            performClick(node)
+        } else {
+            // If no node is focused in the UI tree, simulate a DPAD_CENTER tap
+            // via gesture at screen center. This bypasses apps that hide focus.
+            Log.w(TAG, "No focus found in UI tree. Simulating DPAD_CENTER via center-screen tap.")
+            val displayMetrics = service.resources.displayMetrics
+            val cx = displayMetrics.widthPixels / 2f
+            val cy = displayMetrics.heightPixels / 2f
+            val path = android.graphics.Path().apply { moveTo(cx, cy) }
+            val gesture = GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, 50))
+                .build()
+            service.dispatchGesture(gesture, null, null)
         }
-        return false
     }
 
     fun typeText(text: String): Boolean {
-        val focusedNode = findNode(isFocused = true, isEditable = true)
-        if (focusedNode != null) {
-            val arguments = Bundle().apply {
+        val node = findNodeInAllWindows { it.isFocused && it.isEditable } ?: findNodeInAllWindows { it.isEditable }
+        return if (node != null) {
+            val args = Bundle().apply {
                 putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
             }
-            val success = focusedNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
-            if (success) {
-                Log.d(TAG, "Successfully typed '$text' into focused field.")
-            } else {
-                Log.e(TAG, "Failed to type text into focused field.")
-            }
-            return success
+            val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            Log.d(TAG, "Type '$text' success: $success")
+            success
+        } else {
+            Log.w(TAG, "No editable field found to type text.")
+            false
         }
-        Log.w(TAG, "No editable text field is currently focused.")
-        return false
     }
 
-    fun sendKey(keyCode: Int) {
-        val success = service.performGlobalAction(keyCode)
-        Log.d(TAG, "Sent key code $keyCode, success: $success")
+    private fun findNodeInAllWindows(predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
+        // Scan windows in reverse (top-most first)
+        val windows = service.windows
+        for (i in windows.indices.reversed()) {
+            val root = windows[i].root ?: continue
+            val result = findInsideNode(root, predicate)
+            if (result != null) return result
+        }
+        // Fallback to active window
+        return service.rootInActiveWindow?.let { findInsideNode(it, predicate) }
     }
 
-    private fun findNode(
-        text: String? = null,
-        descriptionContains: String? = null,
-        packageName: String? = null,
-        isFocused: Boolean? = null,
-        isEditable: Boolean? = null
-    ): AccessibilityNodeInfo? {
-        val root = service.rootInActiveWindow ?: return null
-
-        fun search(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-            val matches = (
-                (text == null || node.text?.toString().equals(text, ignoreCase = true)) &&
-                (descriptionContains == null || node.contentDescription?.toString()?.contains(descriptionContains, ignoreCase = true) == true) &&
-                (packageName == null || node.packageName?.equals(packageName) == true) &&
-                (isFocused == null || node.isFocused) &&
-                (isEditable == null || node.isEditable)
-            )
-
-            if (matches) return node
-
+    private fun findInsideNode(root: AccessibilityNodeInfo, predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
+        val queue = mutableListOf(root)
+        while (queue.isNotEmpty()) {
+            val node = queue.removeAt(0) ?: continue
+            if (predicate(node)) return node
             for (i in 0 until node.childCount) {
-                val child = node.getChild(i)
-                val result = child?.let { search(it) }
-                if (result != null) return result
+                node.getChild(i)?.let { queue.add(it) }
             }
-            return null
         }
-
-        return search(root)
+        return null
     }
 
     private fun performClick(node: AccessibilityNodeInfo): Boolean {
-        if (node.isClickable) {
-            val success = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            if (success) {
-                Log.d(TAG, "performAction(ACTION_CLICK) succeeded.")
-                return true
-            }
+        if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+        
+        // Fallback 1: Click parent
+        var parent = node.parent
+        while (parent != null) {
+            if (parent.isClickable && parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+            parent = parent.parent
         }
-
-        Log.d(TAG, "ACTION_CLICK failed or node not clickable, trying gesture tap.")
-        val bounds = Rect()
-        node.getBoundsInScreen(bounds)
-        val path = Path().apply {
-            moveTo(bounds.centerX().toFloat(), bounds.centerY().toFloat())
-        }
+        
+        // Fallback 2: Gesture Tap
+        val bounds = Rect().also { node.getBoundsInScreen(it) }
+        val x = bounds.centerX().toFloat()
+        val y = bounds.centerY().toFloat()
+        
+        Log.d(TAG, "Standard click failed. Performing gesture tap at ($x, $y)")
+        val path = Path().apply { moveTo(x, y) }
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, 100))
             .build()
