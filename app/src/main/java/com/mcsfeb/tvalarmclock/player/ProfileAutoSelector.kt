@@ -43,22 +43,45 @@ object ProfileAutoSelector {
     }
 
     /**
-     * Bypasses profile screens by attempting to click the focused element repeatedly.
+     * Bypasses profile screens by selecting the default profile.
+     *
+     * Strategy: Double-tap DPAD_CENTER. On Android TV profile screens
+     * (Netflix "Who's Watching?", Max, Disney+, etc.), the first CENTER
+     * press focuses/highlights the default profile, the second press
+     * selects it. We retry this pattern a few times as the app loads.
      */
     fun scheduleAutoSelect(packageName: String, initialDelay: Long = 4000L) {
         if (!isServiceEnabled()) return
         Log.d(TAG, "Starting profile auto-select routine for $packageName with delay ${initialDelay}ms")
-        
-        // Many apps land on the profile screen with the last-used profile already focused.
-        // We try clicking the focus 8 times over 16 seconds to catch it as it loads.
-        for (i in 1..8) {
-            val delay = initialDelay + (i * 2000L)
-            handler.postDelayed({
-                Log.d(TAG, "Profile Click Attempt $i of 8...")
-                val success = ui?.clickFocused() ?: false
-                if (success) Log.d(TAG, "Profile Click Attempt $i: ACTION SENT")
-            }, delay)
-        }
+
+        // Attempt 1: Double-tap DPAD_CENTER after app loads
+        handler.postDelayed({
+            Log.d(TAG, "Profile attempt 1: Double-tap DPAD_CENTER")
+            doubleTapCenter()
+        }, initialDelay)
+
+        // Attempt 2: Try again in case app was slow to reach profile screen
+        handler.postDelayed({
+            Log.d(TAG, "Profile attempt 2: Double-tap DPAD_CENTER")
+            doubleTapCenter()
+        }, initialDelay + 3000L)
+
+        // Attempt 3: Final try for very slow-loading apps
+        handler.postDelayed({
+            Log.d(TAG, "Profile attempt 3: Double-tap DPAD_CENTER")
+            doubleTapCenter()
+        }, initialDelay + 6000L)
+    }
+
+    /**
+     * Double-tap DPAD_CENTER with a short gap.
+     * First press focuses the default profile, second press selects it.
+     */
+    private fun doubleTapCenter() {
+        ui?.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_CENTER)
+        handler.postDelayed({
+            ui?.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_CENTER)
+        }, 400L)
     }
 
     fun runNetflixRecipe(show: String, season: String?, episode: String?) {

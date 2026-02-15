@@ -49,17 +49,26 @@ class UiController(private val service: AccessibilityService) {
             Log.d(TAG, "Clicking focused node: ${node.className}")
             performClick(node)
         } else {
-            // If no node is focused in the UI tree, simulate a DPAD_CENTER tap
-            // via gesture at screen center. This bypasses apps that hide focus.
-            Log.w(TAG, "No focus found in UI tree. Simulating DPAD_CENTER via center-screen tap.")
-            val displayMetrics = service.resources.displayMetrics
-            val cx = displayMetrics.widthPixels / 2f
-            val cy = displayMetrics.heightPixels / 2f
-            val path = android.graphics.Path().apply { moveTo(cx, cy) }
-            val gesture = GestureDescription.Builder()
-                .addStroke(GestureDescription.StrokeDescription(path, 0, 50))
-                .build()
-            service.dispatchGesture(gesture, null, null)
+            // On Android TV, apps use D-pad navigation and don't respond to touch.
+            // When we can't see focus in the accessibility tree (common with other
+            // apps' profile screens), send a real DPAD_CENTER key event via shell.
+            Log.w(TAG, "No focus found in UI tree. Injecting DPAD_CENTER key event.")
+            sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_CENTER)
+        }
+    }
+
+    /**
+     * Send a D-pad key event. Used to navigate within apps where we can't see
+     * the accessibility tree (e.g., profile selection screens).
+     */
+    fun sendKeyEvent(keyCode: Int): Boolean {
+        return try {
+            Runtime.getRuntime().exec(arrayOf("input", "keyevent", keyCode.toString()))
+            Log.d(TAG, "Sent key event: $keyCode")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send key event $keyCode: ${e.message}")
+            false
         }
     }
 

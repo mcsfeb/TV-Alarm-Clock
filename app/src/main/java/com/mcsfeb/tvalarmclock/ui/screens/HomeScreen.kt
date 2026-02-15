@@ -11,6 +11,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -24,6 +26,7 @@ import com.mcsfeb.tvalarmclock.ui.theme.*
 /**
  * HomeScreen - Clean main screen with just the clock and alarm list.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun HomeScreen(
     alarms: List<AlarmItem>,
@@ -126,7 +129,9 @@ fun HomeScreen(
                 } else {
                     LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .focusRestorer()
                     ) {
                         items(alarms) { alarm ->
                             AlarmCard(
