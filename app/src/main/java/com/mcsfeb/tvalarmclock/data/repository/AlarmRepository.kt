@@ -1,15 +1,16 @@
 package com.mcsfeb.tvalarmclock.data.repository
 
 import android.content.Context
+import android.util.Log
 import com.mcsfeb.tvalarmclock.data.model.AlarmItem
 import com.mcsfeb.tvalarmclock.data.model.LaunchMode
 import com.mcsfeb.tvalarmclock.data.model.StreamingApp
-import com.mcsfeb.tvalarmclock.data.model.StreamingContent // Import StreamingContent
+import com.mcsfeb.tvalarmclock.data.model.StreamingContent
 
 /**
  * AlarmRepository - Saves and loads alarms from SharedPreferences.
  *
- * Format: "id|hour|minute|active|hasContent|appOrdinal|contentId|title|launchModeOrdinal|searchQuery"
+ * Format: "id|hour|minute|active|hasContent|appOrdinal|contentId|title|launchModeOrdinal|searchQuery|season|episode"
  * (hasContent and subsequent fields are optional)
  */
 class AlarmRepository(context: Context) {
@@ -20,7 +21,9 @@ class AlarmRepository(context: Context) {
         val encoded = alarms.joinToString(";;") { alarm ->
             val base = "${alarm.id}|${alarm.hour}|${alarm.minute}|${alarm.isActive}"
             alarm.streamingContent?.let { content ->
-                "$base|true|${content.app.ordinal}|${content.contentId}|${content.title}|${content.launchMode.ordinal}|${content.searchQuery}"
+                val s = content.seasonNumber?.toString() ?: ""
+                val e = content.episodeNumber?.toString() ?: ""
+                "$base|true|${content.app.ordinal}|${content.contentId}|${content.title}|${content.launchMode.ordinal}|${content.searchQuery}|$s|$e"
             } ?: "$base|false"
         }
         prefs.edit().putString("alarms_list", encoded).apply()
@@ -46,7 +49,11 @@ class AlarmRepository(context: Context) {
                             val title = parts[7]
                             val launchMode = LaunchMode.entries[parts[8].toInt()]
                             val searchQuery = parts[9]
-                            StreamingContent(app, contentId, title, launchMode, searchQuery)
+                            
+                            val season = if (parts.size > 10 && parts[10].isNotBlank()) parts[10].toIntOrNull() else null
+                            val episode = if (parts.size > 11 && parts[11].isNotBlank()) parts[11].toIntOrNull() else null
+
+                            StreamingContent(app, contentId, title, launchMode, searchQuery, season, episode)
                         } else {
                             // Malformed content data, return null for streamingContent
                             null
@@ -59,8 +66,7 @@ class AlarmRepository(context: Context) {
                 } else null
             }
         } catch (e: Exception) {
-            // Log the error for debugging, then return empty list to prevent crash
-            // Log.e("AlarmRepository", "Error loading alarms", e)
+            Log.e("AlarmRepository", "Error loading alarms", e)
             emptyList()
         }
     }

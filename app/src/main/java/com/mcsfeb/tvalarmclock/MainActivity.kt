@@ -11,8 +11,7 @@ import com.mcsfeb.tvalarmclock.data.config.DeepLinkResolver
 import com.mcsfeb.tvalarmclock.data.model.AlarmItem
 import com.mcsfeb.tvalarmclock.data.model.StreamingContent
 import com.mcsfeb.tvalarmclock.data.repository.AlarmRepository
-import com.mcsfeb.tvalarmclock.player.LaunchResult
-import com.mcsfeb.tvalarmclock.player.StreamingLauncher
+import com.mcsfeb.tvalarmclock.player.ContentLauncher
 import com.mcsfeb.tvalarmclock.service.AlarmScheduler
 import com.mcsfeb.tvalarmclock.ui.screens.AlarmActivity
 import com.mcsfeb.tvalarmclock.ui.screens.AlarmSetupScreen
@@ -35,7 +34,7 @@ import java.util.*
 class MainActivity : ComponentActivity() {
 
     private lateinit var alarmScheduler: AlarmScheduler
-    private lateinit var streamingLauncher: StreamingLauncher
+    private lateinit var contentLauncher: ContentLauncher
     private lateinit var alarmRepo: AlarmRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,7 +46,7 @@ class MainActivity : ComponentActivity() {
         Log.d("MainActivity", "DeepLinkResolver: ${DeepLinkResolver.getVerifiedAppCount()} apps verified")
 
         alarmScheduler = AlarmScheduler(this)
-        streamingLauncher = StreamingLauncher(this)
+        contentLauncher = ContentLauncher.getInstance(this)
         alarmRepo = AlarmRepository(this)
 
         setContent {
@@ -66,7 +65,7 @@ class MainActivity : ComponentActivity() {
                 // Content chosen for the alarm being set up
                 var setupContent by remember { mutableStateOf<StreamingContent?>(null) }
 
-                val installedApps = remember { streamingLauncher.getInstalledApps() }
+                val installedApps = remember { contentLauncher.getInstalledApps() }
 
                 when (currentScreen) {
                     "home" -> {
@@ -112,6 +111,8 @@ class MainActivity : ComponentActivity() {
                                         putExtra("CONTENT_TITLE", content.title)
                                         putExtra("CONTENT_MODE", content.launchMode.name)
                                         putExtra("CONTENT_SEARCH_QUERY", content.searchQuery)
+                                        content.seasonNumber?.let { putExtra("CONTENT_SEASON", it) }
+                                        content.episodeNumber?.let { putExtra("CONTENT_EPISODE", it) }
                                     }
                                 }
                                 startActivity(testIntent)
@@ -175,8 +176,20 @@ class MainActivity : ComponentActivity() {
                                 currentScreen = "alarm_setup"
                             },
                             onTestLaunch = { content ->
-                                val result = streamingLauncher.launch(content)
-                                launchResultMessage = result.displayMessage()
+                                // Construct identifiers for ContentLauncher
+                                val identifiers = mutableMapOf<String, String>()
+                                identifiers["id"] = content.contentId
+                                identifiers["title"] = content.title
+                                identifiers["showName"] = content.searchQuery.ifBlank { content.title }
+                                identifiers["channelName"] = content.title
+                                content.seasonNumber?.let { identifiers["season"] = it.toString() }
+                                content.episodeNumber?.let { identifiers["episode"] = it.toString() }
+                                
+                                // Determine type
+                                val type = if (content.app.name == "SLING_TV") "live" else "episode"
+
+                                contentLauncher.launchContent(content.app.packageName, type, identifiers)
+                                launchResultMessage = "Launch command sent..."
                             },
                             onBack = {
                                 currentScreen = "alarm_setup"

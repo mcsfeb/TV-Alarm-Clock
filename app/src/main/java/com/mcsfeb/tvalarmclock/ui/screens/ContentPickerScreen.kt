@@ -560,7 +560,9 @@ fun ContentPickerScreen(
                                                 title = title,
                                                 launchMode = if (contentId.isNotBlank())
                                                     LaunchMode.DEEP_LINK else LaunchMode.SEARCH,
-                                                searchQuery = show.title // JUST THE SHOW TITLE
+                                                searchQuery = show.title, // JUST THE SHOW TITLE
+                                                seasonNumber = episode.seasonNumber,
+                                                episodeNumber = episode.episodeNumber
                                             )
                                         )
                                     }

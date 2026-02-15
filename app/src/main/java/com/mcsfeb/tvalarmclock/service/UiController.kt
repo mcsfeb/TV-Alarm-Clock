@@ -6,16 +6,33 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.os.Bundle
 import android.util.Log
+import android.view.KeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import java.util.ArrayDeque
 
 /**
  * UiController - Advanced interaction helper for Accessibility Service.
- * Upgraded with multi-window scanning and parent-click fallbacks.
+ *
+ * TV-FIRST DESIGN: On Android TV, apps navigate via DPAD key events, NOT touch.
+ * Accessibility actions (ACTION_CLICK, focusSearch) often fail on other apps'
+ * UI trees because those apps don't expose their focus model to external services.
+ *
+ * Therefore, this controller uses real DPAD key events (via `input keyevent`)
+ * as the PRIMARY interaction method, with accessibility actions as a bonus attempt.
  */
 class UiController(private val service: AccessibilityService) {
 
     companion object {
         private const val TAG = "UiController"
+
+        // DPAD direction constants (matching AccessibilityNodeInfo.focusSearch values)
+        const val FOCUS_LEFT = 17
+        const val FOCUS_UP = 33
+        const val FOCUS_RIGHT = 66
+        const val FOCUS_DOWN = 130
+
+        // Safety limit to prevent infinite loops/freezes on complex UIs
+        private const val MAX_SCAN_NODES = 150
     }
 
     fun findAndClick(
@@ -33,34 +50,63 @@ class UiController(private val service: AccessibilityService) {
         }
 
         return if (node != null) {
-            Log.d(TAG, "Clicking node: [Text: ${node.text}, Desc: ${node.contentDescription}]")
-            performClick(node)
+            try {
+                Log.d(TAG, "Clicking node: [Text: ${node.text}, Desc: ${node.contentDescription}]")
+                performClick(node)
+            } finally {
+                node.recycle()
+            }
         } else {
             Log.w(TAG, "Node not found for click: text=$text, desc=$description")
             false
         }
     }
 
+    /**
+     * Click whatever is currently focused. Uses DPAD_CENTER key event as the
+     * primary method (works on all TV apps), with accessibility ACTION_CLICK
+     * as a bonus attempt first.
+     */
     fun clickFocused(): Boolean {
-        // Look in ALL windows for focus, not just the active one
-        val node = findNodeInAllWindows { it.isFocused }
-            ?: findNodeInAllWindows { it.isAccessibilityFocused }
-        return if (node != null) {
-            Log.d(TAG, "Clicking focused node: ${node.className}")
-            performClick(node)
-        } else {
-            // On Android TV, apps use D-pad navigation and don't respond to touch.
-            // When we can't see focus in the accessibility tree (common with other
-            // apps' profile screens), send a real DPAD_CENTER key event via shell.
-            Log.w(TAG, "No focus found in UI tree. Injecting DPAD_CENTER key event.")
-            sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_CENTER)
+        // Bonus: Try accessibility click on the focused node (works sometimes)
+        var node = findNodeInAllWindows { it.isFocused }
+        if (node == null) {
+             node = findNodeInAllWindows { it.isAccessibilityFocused }
         }
+
+        if (node != null) {
+            try {
+                Log.d(TAG, "Found focused node: ${node.className}. Trying accessibility click first.")
+                if (performClick(node)) return true
+            } finally {
+                node.recycle()
+            }
+        }
+
+        // Primary: Send real DPAD_CENTER key event (this is what TV apps actually respond to)
+        Log.d(TAG, "Sending DPAD_CENTER key event (TV primary method)")
+        return sendKeyEvent(KeyEvent.KEYCODE_DPAD_CENTER)
+    }
+    
+    /**
+     * Move DPAD focus in the given direction. Uses real key events as the
+     * primary method because focusSearch() doesn't work on other apps' UI trees.
+     */
+    fun moveFocus(direction: Int): Boolean {
+        val keyCode = when (direction) {
+            FOCUS_LEFT -> KeyEvent.KEYCODE_DPAD_LEFT
+            FOCUS_RIGHT -> KeyEvent.KEYCODE_DPAD_RIGHT
+            FOCUS_UP -> KeyEvent.KEYCODE_DPAD_UP
+            FOCUS_DOWN -> KeyEvent.KEYCODE_DPAD_DOWN
+            else -> {
+                Log.w(TAG, "Unknown focus direction: $direction")
+                return false
+            }
+        }
+        Log.d(TAG, "Moving focus via DPAD key event: $keyCode")
+        return sendKeyEvent(keyCode)
     }
 
-    /**
-     * Send a D-pad key event. Used to navigate within apps where we can't see
-     * the accessibility tree (e.g., profile selection screens).
-     */
     fun sendKeyEvent(keyCode: Int): Boolean {
         return try {
             Runtime.getRuntime().exec(arrayOf("input", "keyevent", keyCode.toString()))
@@ -71,41 +117,94 @@ class UiController(private val service: AccessibilityService) {
             false
         }
     }
+    
+    private fun clickScreenCenter(): Boolean {
+        val displayMetrics = service.resources.displayMetrics
+        val x = displayMetrics.widthPixels / 2f
+        val y = displayMetrics.heightPixels / 2f
+        return performGestureClick(x, y)
+    }
 
     fun typeText(text: String): Boolean {
         val node = findNodeInAllWindows { it.isFocused && it.isEditable } ?: findNodeInAllWindows { it.isEditable }
-        return if (node != null) {
-            val args = Bundle().apply {
-                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        
+        if (node != null) {
+            try {
+                val args = Bundle().apply {
+                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+                }
+                val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+                Log.d(TAG, "Type '$text' success: $success")
+                return success
+            } finally {
+                node.recycle()
             }
-            val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-            Log.d(TAG, "Type '$text' success: $success")
-            success
         } else {
             Log.w(TAG, "No editable field found to type text.")
             false
         }
+        return false
     }
 
     private fun findNodeInAllWindows(predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
-        // Scan windows in reverse (top-most first)
         val windows = service.windows
         for (i in windows.indices.reversed()) {
             val root = windows[i].root ?: continue
             val result = findInsideNode(root, predicate)
-            if (result != null) return result
+            if (result != null) {
+                if (result != root) {
+                    root.recycle()
+                }
+                return result
+            }
+            root.recycle()
         }
-        // Fallback to active window
-        return service.rootInActiveWindow?.let { findInsideNode(it, predicate) }
+        
+        val activeRoot = service.rootInActiveWindow ?: return null
+        val result = findInsideNode(activeRoot, predicate)
+        if (result != null) {
+            if (result != activeRoot) activeRoot.recycle()
+            return result
+        }
+        activeRoot.recycle()
+        return null
     }
 
     private fun findInsideNode(root: AccessibilityNodeInfo, predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
-        val queue = mutableListOf(root)
-        while (queue.isNotEmpty()) {
-            val node = queue.removeAt(0) ?: continue
-            if (predicate(node)) return node
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        var visited = 0
+        
+        while (!queue.isEmpty()) {
+            val node = queue.poll() ?: continue
+            visited++
+            
+            // Safety Check
+            if (visited > MAX_SCAN_NODES) {
+                Log.w(TAG, "Scan limit exceeded ($MAX_SCAN_NODES). Aborting.")
+                if (node != root) node.recycle()
+                while (!queue.isEmpty()) {
+                    val n = queue.poll()
+                    if (n != root) n?.recycle()
+                }
+                return null
+            }
+            
+            if (predicate(node)) {
+                // Found match. Recycle remaining queue items.
+                while (!queue.isEmpty()) {
+                    val n = queue.poll()
+                    if (n != root) n?.recycle()
+                }
+                return node
+            }
+            
             for (i in 0 until node.childCount) {
                 node.getChild(i)?.let { queue.add(it) }
+            }
+            
+            if (node != root) {
+                node.recycle()
             }
         }
         return null
@@ -114,24 +213,32 @@ class UiController(private val service: AccessibilityService) {
     private fun performClick(node: AccessibilityNodeInfo): Boolean {
         if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
         
-        // Fallback 1: Click parent
         var parent = node.parent
         while (parent != null) {
-            if (parent.isClickable && parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
-            parent = parent.parent
+             try {
+                if (parent.isClickable && parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+                
+                val oldParent = parent
+                parent = parent.parent
+                oldParent.recycle() 
+            } catch (e: Exception) {
+                return false
+            }
         }
         
-        // Fallback 2: Gesture Tap
+        // Fallback to gesture
         val bounds = Rect().also { node.getBoundsInScreen(it) }
         val x = bounds.centerX().toFloat()
         val y = bounds.centerY().toFloat()
-        
-        Log.d(TAG, "Standard click failed. Performing gesture tap at ($x, $y)")
+        return performGestureClick(x, y)
+    }
+    
+    private fun performGestureClick(x: Float, y: Float): Boolean {
+        Log.d(TAG, "Performing gesture tap at ($x, $y)")
         val path = Path().apply { moveTo(x, y) }
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, 100))
             .build()
-
         return service.dispatchGesture(gesture, null, null)
     }
 }

@@ -18,10 +18,10 @@ package com.mcsfeb.tvalarmclock.data.model
  *    Opens the streaming app directly to a specific content ID.
  *    Only works if we have the app's internal ID.
  *    Example: Open Netflix → go to title 80057281 (Stranger Things)
- *
+ *    
  * Examples:
  * - Sling TV, just open → launchMode=APP_ONLY
- * - HBO Max, Friends S1E1 → launchMode=SEARCH, searchQuery="Friends"
+ * - HBO Max, Friends S1E1 → launchMode=SEARCH, searchQuery="Friends", seasonNumber=1, episodeNumber=1
  * - Netflix, Stranger Things → launchMode=DEEP_LINK, contentId="80057281"
  * - Sling TV, ESPN → launchMode=DEEP_LINK, contentId="espn"
  */
@@ -30,7 +30,9 @@ data class StreamingContent(
     val contentId: String,
     val title: String,           // User-friendly name: "Friends S1E1"
     val launchMode: LaunchMode,
-    val searchQuery: String = "" // Show name for SEARCH mode (e.g., "Friends")
+    val searchQuery: String = "", // Show name for SEARCH mode (e.g., "Friends")
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null
 )
 
 /**
