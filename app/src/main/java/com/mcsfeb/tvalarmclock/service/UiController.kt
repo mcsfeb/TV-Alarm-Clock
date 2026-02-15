@@ -107,11 +107,57 @@ class UiController(private val service: AccessibilityService) {
         return sendKeyEvent(keyCode)
     }
 
+    /**
+     * Send a key event to the foreground app.
+     *
+     * Normal Android apps CANNOT inject key events into other apps (needs
+     * INJECT_EVENTS signature-level permission). To work around this, we use:
+     *
+     * 1. ADB over TCP on localhost (connects to ADB as shell user)
+     * 2. Instrumentation fallback (works if app has special permissions)
+     * 3. Runtime.exec fallback (rarely works from app context)
+     *
+     * ADB TCP must be enabled once via: `adb tcpip 5555`
+     */
     fun sendKeyEvent(keyCode: Int): Boolean {
         return try {
-            Runtime.getRuntime().exec(arrayOf("input", "keyevent", keyCode.toString()))
-            Log.d(TAG, "Sent key event: $keyCode")
-            true
+            var success = false
+            val thread = Thread {
+                // Strategy 1: ADB over TCP (most reliable, runs as shell user)
+                if (AdbShell.sendKeyEvent(keyCode)) {
+                    success = true
+                    return@Thread
+                }
+
+                // Strategy 2: Instrumentation (works on some devices/configurations)
+                try {
+                    android.app.Instrumentation().sendKeyDownUpSync(keyCode)
+                    Log.d(TAG, "Sent key event via Instrumentation: $keyCode")
+                    success = true
+                    return@Thread
+                } catch (e: SecurityException) {
+                    Log.d(TAG, "Instrumentation not available for $keyCode")
+                } catch (e: Exception) {
+                    Log.d(TAG, "Instrumentation failed for $keyCode: ${e.message}")
+                }
+
+                // Strategy 3: Direct shell exec (unlikely to work but free to try)
+                try {
+                    val process = ProcessBuilder("input", "keyevent", keyCode.toString())
+                        .redirectErrorStream(true)
+                        .start()
+                    val exitCode = process.waitFor()
+                    if (exitCode == 0) {
+                        Log.d(TAG, "Sent key event via shell: $keyCode")
+                        success = true
+                    }
+                } catch (e: Exception) {
+                    Log.d(TAG, "Shell exec failed for $keyCode")
+                }
+            }
+            thread.start()
+            thread.join(5000) // Wait up to 5 seconds
+            success
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send key event $keyCode: ${e.message}")
             false

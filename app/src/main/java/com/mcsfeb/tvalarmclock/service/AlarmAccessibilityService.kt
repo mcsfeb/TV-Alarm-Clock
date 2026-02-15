@@ -67,6 +67,7 @@ class AlarmAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         uiController = UiController(this)
+        AdbShell.init(this)
         Log.i(TAG, "Alarm Accessibility Service connected (TV Mode).")
     }
 
@@ -120,36 +121,117 @@ class AlarmAccessibilityService : AccessibilityService() {
         return true
     }
 
+    /**
+     * Apps known to use custom rendering engines that expose NO text in accessibility.
+     * For these apps, we cannot detect profile screens via text — we must use blind
+     * DPAD navigation after a timed wait.
+     */
+    private val opaqueApps = listOf(
+        "com.wbd.stream", "com.hbo"  // Max/HBO uses You.i Engine, zero a11y text
+    )
+
     private fun checkAndBypassProfile(pkg: String) {
-        // Debounce: don't start a new job if one is running for the same package
+        // Debounce: don't start a new job if one is running
         if (currentJob?.isActive == true) return
 
         currentJob = serviceScope.launch {
             try {
-                // 1. Detection & Bypass (Always Active)
-                if (isProfileScreen(pkg)) {
-                    bypassProfileScreen(pkg)
+                val hasPending = pendingNavigation != null && pendingNavigation?.packageName == pkg
+                val isOpaque = opaqueApps.any { pkg.contains(it) }
+
+                if (hasPending) {
+                    if (isOpaque) {
+                        // OPAQUE APP (Max, HBO): Cannot detect profile screen via text.
+                        // Strategy: Wait for app to load past splash, then blindly bypass
+                        // profile with DPAD, then wait for home screen to load.
+                        Log.i(TAG, "Opaque app $pkg — waiting for splash then blind DPAD bypass")
+                        delay(8000) // Wait for splash screen to pass
+                        Log.d(TAG, "Sending blind DPAD bypass for opaque app")
+                        bypassProfileScreen(pkg)
+                        delay(5000) // Wait for home screen to load after profile select
+                    } else {
+                        // NORMAL APP: Poll for profile/home screen text
+                        Log.d(TAG, "Waiting for $pkg to finish loading...")
+                        var settled = false
+                        repeat(15) { i ->
+                            delay(1000)
+                            if (isProfileScreen(pkg)) {
+                                Log.i(TAG, "Profile screen appeared after ${i + 1}s — bypassing")
+                                bypassProfileScreen(pkg)
+                                settled = true
+                                return@repeat
+                            }
+                            if (isHomeScreen(pkg)) {
+                                Log.i(TAG, "Home screen detected after ${i + 1}s — no profile needed")
+                                settled = true
+                                return@repeat
+                            }
+                        }
+                        if (!settled) {
+                            // Fallback: Try DPAD bypass anyway (might be another opaque app)
+                            Log.w(TAG, "App didn't settle after 15s. Trying blind DPAD bypass.")
+                            bypassProfileScreen(pkg)
+                            delay(3000)
+                        }
+                    }
+                } else {
+                    // No pending navigation — just do a quick profile check & bypass
+                    if (isProfileScreen(pkg)) {
+                        bypassProfileScreen(pkg)
+                    }
                 }
 
-                // 2. Navigation Recipe (if pending)
+                // Run navigation recipe if pending
                 val pending = pendingNavigation
                 if (pending != null && pending.packageName == pkg) {
-                    // Wait a moment for any profile bypass transition to settle
-                    delay(1000)
-                    // Double check we are not still on profile
-                    if (!isProfileScreen(pkg)) {
-                        Log.i(TAG, "Executing pending navigation for $pkg")
-                        runNavigationRecipe(pending)
-                        pendingNavigation = null
-                    } else {
-                        Log.w(TAG, "Still on profile screen, will retry on next event.")
-                    }
+                    delay(1500) // Settle time
+                    Log.i(TAG, "Executing pending navigation for $pkg")
+                    runNavigationRecipe(pending)
+                    pendingNavigation = null
                 }
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error in automation sequence", e)
             }
         }
+    }
+
+    /**
+     * Check if the app has reached its home screen (meaning no profile bypass needed).
+     * Only works for apps that expose text in the accessibility tree.
+     */
+    private fun isHomeScreen(packageName: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        var count = 0
+
+        try {
+            while (!queue.isEmpty() && count < 60) {
+                val node = queue.poll() ?: continue
+                count++
+
+                val text = node.text?.toString()?.lowercase() ?: ""
+                val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+
+                if (homeScreenKeywords.any { text.contains(it) || desc.contains(it) }) {
+                    if (node != root) node.recycle()
+                    while (!queue.isEmpty()) { val n = queue.poll(); if (n != root) n?.recycle() }
+                    return true
+                }
+
+                for (i in 0 until node.childCount) {
+                    node.getChild(i)?.let { queue.add(it) }
+                }
+                if (node != root) node.recycle()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in isHomeScreen", e)
+        } finally {
+            while (!queue.isEmpty()) { val n = queue.poll(); if (n != root) n?.recycle() }
+            root.recycle()
+        }
+        return false
     }
 
     /**
