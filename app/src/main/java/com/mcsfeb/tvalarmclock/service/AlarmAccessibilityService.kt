@@ -2,6 +2,7 @@ package com.mcsfeb.tvalarmclock.service
 
 import android.accessibilityservice.AccessibilityService
 import android.util.Log
+import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import kotlinx.coroutines.*
@@ -9,23 +10,29 @@ import java.util.ArrayDeque
 
 /**
  * AlarmAccessibilityService - Monitors foreground apps and enables UI automation.
- * 
- * Simplified TV-first bypass logic using native accessibility actions.
+ *
+ * Uses ADB-over-TCP for robust key injection and native accessibility for detection.
+ * Uses AppNavigationGuide for tested deep link and DPAD strategies.
+ *
+ * STRATEGY (based on real device testing):
+ * 1. Deep links are the PRIMARY way to open content (most reliable)
+ * 2. Profile bypass uses DPAD (CENTER click, PIN entry for Disney+)
+ * 3. DPAD navigation is a LAST RESORT — most apps are opaque to accessibility
  */
 class AlarmAccessibilityService : AccessibilityService() {
 
     lateinit var uiController: UiController
         private set
-    
+
     var currentPackage: String? = null
         private set
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var currentJob: Job? = null
-    
+
     // State for pending navigation
     private var pendingNavigation: PendingNavigation? = null
-    
+
     data class PendingNavigation(
         val packageName: String,
         val contentType: String,
@@ -33,25 +40,23 @@ class AlarmAccessibilityService : AccessibilityService() {
         val timestamp: Long = System.currentTimeMillis()
     )
 
+    // Verified installed packages from real device scan
     private val streamingPackages = listOf(
-        "com.paramountplus", "com.cbs.ott", "com.wbd.stream", "com.hbo", "com.max", 
-        "com.netflix.ninja", "com.sling", "com.disney.disneyplus", "com.hulu.plus",
-        "com.amazon.amazonvideo.livingroom", "com.peacocktv.peacockandroid", 
-        "com.google.android.youtube.tv", "com.tubitv.tv", "tv.pluto.android"
+        AppNavigationGuide.Packages.SLING,
+        AppNavigationGuide.Packages.DISNEY_PLUS,
+        AppNavigationGuide.Packages.HBO_MAX,
+        AppNavigationGuide.Packages.HULU,
+        AppNavigationGuide.Packages.PARAMOUNT,
+        AppNavigationGuide.Packages.NETFLIX,
+        AppNavigationGuide.Packages.YOUTUBE,
+        AppNavigationGuide.Packages.PRIME_VIDEO,
+        AppNavigationGuide.Packages.TUBI
     )
 
-    // Profile screen keywords — must be specific enough to avoid false positives
-    // on home screens. "who" alone is too broad; "default"/"primary" appear elsewhere.
-    private val profileKeywords = listOf(
-        "who's watching", "who is watching", "choose your profile",
-        "select profile", "switch profile", "continue watching as",
-        "manage profiles", "add profile", "edit profile"
-    )
-
-    // Home screen keywords — if we see any of these, we're past the profile screen
+    // Keywords from real device testing
     private val homeScreenKeywords = listOf(
         "home", "search", "guide", "library", "my stuff", "live tv",
-        "browse", "movies", "shows", "new & popular", "watchlist"
+        "browse", "movies", "shows", "recommended for you", "sports on sling"
     )
 
     companion object {
@@ -67,8 +72,10 @@ class AlarmAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         uiController = UiController(this)
+
+        // Initialize ADB connection
         AdbShell.init(this)
-        Log.i(TAG, "Alarm Accessibility Service connected (TV Mode).")
+        Log.i(TAG, "Alarm Accessibility Service connected (Deep Link + DPAD Mode).")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -76,14 +83,14 @@ class AlarmAccessibilityService : AccessibilityService() {
 
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
             event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
-            
+
             val pkg = event.packageName?.toString()
             if (pkg != null && pkg != "com.android.systemui") {
                 if (pkg != currentPackage) {
                     Log.d(TAG, "Window/Content changed: $pkg")
                     currentPackage = pkg
                 }
-                
+
                 // Always check for profile screen if it's a streaming app
                 if (streamingPackages.any { pkg.contains(it) }) {
                     checkAndBypassProfile(pkg)
@@ -113,7 +120,7 @@ class AlarmAccessibilityService : AccessibilityService() {
     ): Boolean {
         Log.i(TAG, "Queuing navigation for $packageName ($contentType)")
         pendingNavigation = PendingNavigation(packageName, contentType, identifiers)
-        
+
         // Trigger immediate check if we are already in the app
         if (currentPackage == packageName) {
             checkAndBypassProfile(packageName)
@@ -121,73 +128,29 @@ class AlarmAccessibilityService : AccessibilityService() {
         return true
     }
 
-    /**
-     * Apps known to use custom rendering engines that expose NO text in accessibility.
-     * For these apps, we cannot detect profile screens via text — we must use blind
-     * DPAD navigation after a timed wait.
-     */
-    private val opaqueApps = listOf(
-        "com.wbd.stream", "com.hbo"  // Max/HBO uses You.i Engine, zero a11y text
-    )
-
     private fun checkAndBypassProfile(pkg: String) {
-        // Debounce: don't start a new job if one is running
+        // Debounce: don't start a new job if one is running for the same package
         if (currentJob?.isActive == true) return
 
         currentJob = serviceScope.launch {
             try {
-                val hasPending = pendingNavigation != null && pendingNavigation?.packageName == pkg
-                val isOpaque = opaqueApps.any { pkg.contains(it) }
-
-                if (hasPending) {
-                    if (isOpaque) {
-                        // OPAQUE APP (Max, HBO): Cannot detect profile screen via text.
-                        // Strategy: Wait for app to load past splash, then blindly bypass
-                        // profile with DPAD, then wait for home screen to load.
-                        Log.i(TAG, "Opaque app $pkg — waiting for splash then blind DPAD bypass")
-                        delay(8000) // Wait for splash screen to pass
-                        Log.d(TAG, "Sending blind DPAD bypass for opaque app")
-                        bypassProfileScreen(pkg)
-                        delay(5000) // Wait for home screen to load after profile select
-                    } else {
-                        // NORMAL APP: Poll for profile/home screen text
-                        Log.d(TAG, "Waiting for $pkg to finish loading...")
-                        var settled = false
-                        repeat(15) { i ->
-                            delay(1000)
-                            if (isProfileScreen(pkg)) {
-                                Log.i(TAG, "Profile screen appeared after ${i + 1}s — bypassing")
-                                bypassProfileScreen(pkg)
-                                settled = true
-                                return@repeat
-                            }
-                            if (isHomeScreen(pkg)) {
-                                Log.i(TAG, "Home screen detected after ${i + 1}s — no profile needed")
-                                settled = true
-                                return@repeat
-                            }
-                        }
-                        if (!settled) {
-                            // Fallback: Try DPAD bypass anyway (might be another opaque app)
-                            Log.w(TAG, "App didn't settle after 15s. Trying blind DPAD bypass.")
-                            bypassProfileScreen(pkg)
-                            delay(3000)
-                        }
-                    }
-                } else {
-                    // No pending navigation — just do a quick profile check & bypass
-                    if (isProfileScreen(pkg)) {
-                        bypassProfileScreen(pkg)
-                    }
+                // 1. Detection & Bypass (Always Active)
+                val profileType = detectProfileScreen(pkg)
+                if (profileType != ProfileType.NONE) {
+                    bypassProfileScreen(pkg, profileType)
                 }
 
-                // Run navigation recipe if pending
+                // 2. Navigation Recipe (if pending)
                 val pending = pendingNavigation
                 if (pending != null && pending.packageName == pkg) {
-                    delay(1500) // Settle time
-                    Log.i(TAG, "Executing pending navigation for $pkg")
-                    runNavigationRecipe(pending)
-                    pendingNavigation = null
+                    // Double check we are not still on profile
+                    if (detectProfileScreen(pkg) == ProfileType.NONE) {
+                        Log.i(TAG, "Executing pending navigation for $pkg")
+                        runNavigationRecipe(pending)
+                        pendingNavigation = null
+                    } else {
+                        Log.w(TAG, "Still on profile screen, skipping recipe.")
+                    }
                 }
 
             } catch (e: Exception) {
@@ -196,324 +159,208 @@ class AlarmAccessibilityService : AccessibilityService() {
         }
     }
 
-    /**
-     * Check if the app has reached its home screen (meaning no profile bypass needed).
-     * Only works for apps that expose text in the accessibility tree.
-     */
-    private fun isHomeScreen(packageName: String): Boolean {
-        val root = rootInActiveWindow ?: return false
+    // =====================================================================
+    //  PROFILE DETECTION (improved with real resource IDs from device testing)
+    // =====================================================================
+    enum class ProfileType {
+        NONE,           // Not a profile screen
+        SIMPLE_CLICK,   // Just press CENTER to select first profile
+        PIN_ENTRY,      // Disney+ style PIN pad
+        OPAQUE_CLICK    // App is opaque but we detected "profile" keyword
+    }
+
+    private fun detectProfileScreen(packageName: String): ProfileType {
+        val root = rootInActiveWindow ?: return ProfileType.NONE
         val queue = ArrayDeque<AccessibilityNodeInfo>()
         queue.add(root)
+
         var count = 0
+        val maxNodes = 80
+        var foundProfileKeyword = false
+        var foundPinScreen = false
+        var foundSlingProfile = false
 
         try {
-            while (!queue.isEmpty() && count < 60) {
+            while (!queue.isEmpty()) {
                 val node = queue.poll() ?: continue
                 count++
 
+                if (count > maxNodes) {
+                    if (node != root) node.recycle()
+                    break
+                }
+
                 val text = node.text?.toString()?.lowercase() ?: ""
                 val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+                val resId = node.viewIdResourceName ?: ""
 
+                // Check for specific resource IDs first (most reliable)
+                if (resId == AppNavigationGuide.ProfileResIds.SLING_PROFILE_SCREEN ||
+                    resId.contains("SwitchUserProfile")) {
+                    foundSlingProfile = true
+                }
+                if (resId == AppNavigationGuide.ProfileResIds.DISNEY_PIN_PROMPT ||
+                    resId.contains("enterPin")) {
+                    foundPinScreen = true
+                }
+
+                // Check keywords
+                if (AppNavigationGuide.profileKeywords.any { text.contains(it) || desc.contains(it) }) {
+                    foundProfileKeyword = true
+                }
+
+                // Negative match: if we see home screen content, we're past the profile
                 if (homeScreenKeywords.any { text.contains(it) || desc.contains(it) }) {
                     if (node != root) node.recycle()
-                    while (!queue.isEmpty()) { val n = queue.poll(); if (n != root) n?.recycle() }
-                    return true
+                    break // Not a profile screen
                 }
 
                 for (i in 0 until node.childCount) {
                     node.getChild(i)?.let { queue.add(it) }
                 }
+
                 if (node != root) node.recycle()
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error in isHomeScreen", e)
+            Log.e(TAG, "Error in detectProfileScreen", e)
         } finally {
-            while (!queue.isEmpty()) { val n = queue.poll(); if (n != root) n?.recycle() }
-            root.recycle()
-        }
-        return false
-    }
-
-    /**
-     * Bypasses profile selection screens using real DPAD key events.
-     *
-     * TV apps do NOT respond to accessibility ACTION_CLICK or gesture taps on
-     * their profile screens. They ONLY respond to DPAD key events (left, right,
-     * center). This method uses `input keyevent` via shell to send real key
-     * events that the app will actually process.
-     *
-     * Strategy phases:
-     * 1. DPAD_CENTER x2 — most profile screens pre-focus the default/first profile
-     * 2. Navigate LEFT to first profile, then CENTER — handles off-center focus
-     * 3. Navigate UP then LEFT then CENTER — handles apps with vertical layout
-     * 4. Try accessibility-based click on visible profile nodes as last resort
-     */
-    private suspend fun bypassProfileScreen(packageName: String) {
-        Log.i(TAG, "Profile screen detected for $packageName — starting DPAD bypass")
-
-        // Phase 1: Double-tap DPAD_CENTER (most apps pre-focus the default profile)
-        Log.d(TAG, "Phase 1: Double-tap DPAD_CENTER")
-        uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_CENTER)
-        delay(600)
-        uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_CENTER)
-
-        delay(2000)
-        if (!isProfileScreen(packageName)) {
-            Log.i(TAG, "Profile bypass successful (Phase 1: double DPAD_CENTER).")
-            return
-        }
-
-        // Phase 2: Navigate to first profile (LEFT x3 to be safe), then CENTER
-        Log.d(TAG, "Phase 2: DPAD_LEFT x3 -> DPAD_CENTER")
-        repeat(3) {
-            uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_LEFT)
-            delay(300)
-        }
-        delay(300)
-        uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_CENTER)
-
-        delay(2000)
-        if (!isProfileScreen(packageName)) {
-            Log.i(TAG, "Profile bypass successful (Phase 2: left-then-center).")
-            return
-        }
-
-        // Phase 3: Try UP first (some apps like Max/Paramount have vertical layout)
-        Log.d(TAG, "Phase 3: DPAD_UP -> DPAD_LEFT x2 -> DPAD_CENTER")
-        uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_UP)
-        delay(300)
-        repeat(2) {
-            uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_LEFT)
-            delay(300)
-        }
-        uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_CENTER)
-
-        delay(2000)
-        if (!isProfileScreen(packageName)) {
-            Log.i(TAG, "Profile bypass successful (Phase 3: up-left-center).")
-            return
-        }
-
-        // Phase 4: Try DOWN first (some apps put profiles below a header/logo)
-        Log.d(TAG, "Phase 4: DPAD_DOWN -> DPAD_LEFT x2 -> DPAD_CENTER")
-        uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_DOWN)
-        delay(300)
-        repeat(2) {
-            uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_LEFT)
-            delay(300)
-        }
-        uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_CENTER)
-
-        delay(2000)
-        if (!isProfileScreen(packageName)) {
-            Log.i(TAG, "Profile bypass successful (Phase 4: down-left-center).")
-            return
-        }
-
-        // Phase 5: Last resort — try accessibility click on any profile-like node
-        Log.w(TAG, "Phase 5: All DPAD phases failed. Trying accessibility node click.")
-        tryAccessibilityProfileClick(packageName)
-    }
-
-    /**
-     * Last-resort fallback: find clickable nodes that look like profile items
-     * and try ACTION_CLICK directly. This rarely works on TV apps but costs nothing to try.
-     */
-    private fun tryAccessibilityProfileClick(packageName: String) {
-        val root = rootInActiveWindow ?: return
-        try {
-            val queue = ArrayDeque<AccessibilityNodeInfo>()
-            queue.add(root)
-            var visited = 0
-
-            while (!queue.isEmpty() && visited < 80) {
-                val node = queue.poll() ?: continue
-                visited++
-
-                // Look for clickable ImageViews or FrameLayouts (profile avatars)
-                if (node.isClickable && node.isVisibleToUser) {
-                    val cls = node.className?.toString() ?: ""
-                    if (cls.contains("Image") || cls.contains("FrameLayout") || cls.contains("Card")) {
-                        val r = android.graphics.Rect()
-                        node.getBoundsInScreen(r)
-                        if (r.width() > 80 && r.height() > 80 && r.width() < 600) {
-                            Log.d(TAG, "Attempting accessibility click on profile node: $cls at ${r}")
-                            if (node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                                Log.i(TAG, "Accessibility click succeeded on profile node.")
-                                if (node != root) node.recycle()
-                                while (!queue.isEmpty()) {
-                                    val n = queue.poll()
-                                    if (n != root) n?.recycle()
-                                }
-                                return
-                            }
-                        }
-                    }
-                }
-
-                for (i in 0 until node.childCount) {
-                    node.getChild(i)?.let { queue.add(it) }
-                }
-                if (node != root) node.recycle()
-            }
-
-            // Clean up remaining
             while (!queue.isEmpty()) {
                 val n = queue.poll()
                 if (n != root) n?.recycle()
             }
-        } finally {
             root.recycle()
         }
-        Log.e(TAG, "All profile bypass methods exhausted for $packageName.")
-    }
 
-    private fun isProfileScreen(packageName: String): Boolean {
-        val root = rootInActiveWindow ?: return false
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
-        
-        var count = 0
-        val maxNodes = 60 // Limit scan depth
-
-        try {
-            while (!queue.isEmpty()) {
-                val node = queue.poll() ?: continue
-                count++
-                
-                if (count > maxNodes) {
-                    if (node != root) node.recycle()
-                    while (!queue.isEmpty()) {
-                         val n = queue.poll()
-                         if (n != root) n?.recycle()
-                    }
-                    return false
-                }
-
-                val text = node.text?.toString()?.lowercase() ?: ""
-                val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-
-                // Positive Match
-                if (profileKeywords.any { text.contains(it) || desc.contains(it) }) {
-                    if (node != root) node.recycle()
-                    while (!queue.isEmpty()) {
-                         val n = queue.poll()
-                         if (n != root) n?.recycle()
-                    }
-                    return true
-                }
-                
-                // Negative (Fail Fast) Match
-                if (homeScreenKeywords.any { text.contains(it) || desc.contains(it) }) {
-                     if (node != root) node.recycle()
-                     while (!queue.isEmpty()) {
-                         val n = queue.poll()
-                         if (n != root) n?.recycle()
-                    }
-                    return false
-                }
-
-                for (i in 0 until node.childCount) {
-                    node.getChild(i)?.let { queue.add(it) }
-                }
-                
-                if (node != root) {
-                    node.recycle()
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in isProfileScreen", e)
-        } finally {
-            while (!queue.isEmpty()) {
-                 val n = queue.poll()
-                 if (n != root) n?.recycle()
-            }
-            root.recycle()
+        return when {
+            foundPinScreen -> ProfileType.PIN_ENTRY
+            foundSlingProfile -> ProfileType.SIMPLE_CLICK
+            foundProfileKeyword -> ProfileType.SIMPLE_CLICK
+            else -> ProfileType.NONE
         }
-        return false
     }
 
+    // =====================================================================
+    //  PROFILE BYPASS (improved with tested strategies)
+    // =====================================================================
+    private suspend fun bypassProfileScreen(packageName: String, type: ProfileType) {
+        Log.i(TAG, "Profile screen detected for $packageName (type=$type) — starting bypass")
+
+        when (type) {
+            ProfileType.PIN_ENTRY -> {
+                bypassDisneyPinScreen(packageName)
+            }
+            ProfileType.SIMPLE_CLICK, ProfileType.OPAQUE_CLICK -> {
+                bypassSimpleProfileScreen(packageName)
+            }
+            ProfileType.NONE -> { /* No-op */ }
+        }
+    }
+
+    private suspend fun bypassSimpleProfileScreen(packageName: String) {
+        // Phase 1: Simple Center Click (tested: works on Sling, Netflix, most apps)
+        Log.d(TAG, "Phase 1: Center Click")
+        uiController.clickFocused()
+
+        delay(2000)
+        if (detectProfileScreen(packageName) == ProfileType.NONE) {
+            Log.i(TAG, "Profile bypass successful (Phase 1).")
+            return
+        }
+
+        // Phase 2: Double click (for apps where first click selects, second confirms)
+        Log.d(TAG, "Phase 2: Double Center Click")
+        uiController.clickFocused()
+        delay(800)
+        uiController.clickFocused()
+
+        delay(1500)
+        if (detectProfileScreen(packageName) == ProfileType.NONE) {
+            Log.i(TAG, "Profile bypass successful (Phase 2).")
+            return
+        }
+
+        // Phase 3: Navigate to first profile and click (Left x3 -> Center)
+        Log.d(TAG, "Phase 3: Navigate Left then Click")
+        repeat(3) {
+            uiController.moveFocus(UiController.FOCUS_LEFT)
+            delay(300)
+        }
+        uiController.clickFocused()
+
+        delay(1500)
+        if (detectProfileScreen(packageName) == ProfileType.NONE) {
+            Log.i(TAG, "Profile bypass successful (Phase 3).")
+            return
+        }
+
+        Log.w(TAG, "All profile bypass phases failed for $packageName")
+    }
+
+    private suspend fun bypassDisneyPinScreen(packageName: String) {
+        // TODO: Get PIN from alarm settings / user configuration
+        // For now, we can't bypass PIN-protected profiles without the PIN
+        Log.w(TAG, "Disney+ PIN screen detected. PIN entry required but not configured.")
+        Log.w(TAG, "User must configure their Disney+ PIN in alarm settings.")
+
+        // If a PIN is configured in the future, use:
+        // val sequence = AppNavigationGuide.generateDisneyPinSequence(pin)
+        // for (keyCode in sequence) {
+        //     uiController.sendKeyEvent(keyCode)
+        //     delay(300)
+        // }
+    }
+
+    // =====================================================================
+    //  NAVIGATION RECIPES (deep link focused)
+    // =====================================================================
     private suspend fun runNavigationRecipe(nav: PendingNavigation) {
         val ids = nav.identifiers
         Log.d(TAG, "Running recipe for ${nav.packageName}")
-        
-        delay(1500) // Initial stabilization delay
 
+        delay(1500) // Stabilization delay after profile bypass
+
+        // For most apps, deep links handle everything — the recipe is just a fallback
+        // for when the deep link didn't fully work (e.g., landed on show page, need to click Play)
         when {
-            nav.packageName.contains("netflix") -> runNetflixRecipe(nav.contentType, ids)
-            nav.packageName.contains("sling") -> runSlingRecipe(nav.contentType, ids)
-            else -> {
-                Log.w(TAG, "No specific recipe for ${nav.packageName}. Running generic search.")
-                runGenericSearch(ids["showName"] ?: ids["title"] ?: "")
-            }
+            nav.packageName.contains("netflix") -> runNetflixFallback(ids)
+            nav.packageName.contains("hulu") -> runHuluFallback(ids)
+            else -> runGenericFallback(ids)
         }
     }
 
-    private suspend fun runNetflixRecipe(contentType: String, ids: Map<String, String>) {
-        val showName = ids["showName"] ?: ids["title"] ?: return
-        val season = ids["season"]
-        val episode = ids["episode"]
-        val searchText = if (season != null && episode != null) "$showName S${season}E${episode}" else showName
-        Log.d(TAG, "Netflix Recipe: Searching for '$searchText'")
-
-        // Try accessibility click on "Search" first, then DPAD fallback
-        if (!retryAction("Find Search") { clickText("Search") || clickDesc("Search") }) {
-            // DPAD fallback: navigate to top-left where Search usually lives
-            uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_UP)
-            delay(300)
-            uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_LEFT)
-            delay(300)
-            uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_CENTER)
-        }
-        delay(1000)
-        retryAction("Type Text") { setText(searchText) }
+    private suspend fun runNetflixFallback(ids: Map<String, String>) {
+        // Netflix deep links usually go directly to playback
+        // This fallback is for when we land on the show details page
+        Log.d(TAG, "Netflix fallback: looking for Play/Resume button")
         delay(2000)
-        // Move to first result and select it
-        uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_DOWN)
-        delay(500)
-        uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_CENTER)
-        delay(1500)
-        retryAction("Click Play") { clickText("Play") || clickDesc("Play") || clickText("Resume") }
+        retryAction("Click Play") {
+            clickText("Play") || clickDesc("Play") || clickText("Resume") || clickDesc("Resume")
+        }
     }
 
-    private suspend fun runSlingRecipe(contentType: String, ids: Map<String, String>) {
-        val channelName = ids["channelName"] ?: return
-        Log.d(TAG, "Sling Recipe: Tune to channel '$channelName'")
+    private suspend fun runHuluFallback(ids: Map<String, String>) {
+        // Hulu is opaque, but if deep link landed us on a show page, try clicking Play
+        Log.d(TAG, "Hulu fallback: looking for Play button")
         delay(2000)
-        // Navigate down to Guide/Live TV section
-        repeat(4) {
-            uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_DOWN)
-            delay(300)
-        }
-        if (!retryAction("Find Guide") { clickText("Guide") || clickText("Live TV") }) {
-            // Fallback: try search
-            clickDesc("Search")
-            delay(500)
-            setText(channelName)
-            delay(2000)
-            uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_DOWN)
-            delay(300)
-            uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_CENTER)
+        retryAction("Click Play") {
+            clickText("Play") || clickText("Resume") || clickText("Watch")
         }
     }
 
-    private suspend fun runGenericSearch(query: String) {
-        if (query.isBlank()) return
-        Log.d(TAG, "Generic Search for '$query'")
+    private suspend fun runGenericFallback(ids: Map<String, String>) {
+        // Generic: just try to find and click a Play/Watch button
+        Log.d(TAG, "Generic fallback: looking for Play button")
         delay(2000)
-        if (clickText("Search") || clickDesc("Search")) {
-            delay(1000)
-            setText(query)
-            delay(2000)
-            // Select first result
-            uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_DOWN)
-            delay(500)
-            uiController.sendKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_CENTER)
-            delay(1000)
-            clickText("Play")
+        retryAction("Click Play") {
+            clickText("Play") || clickDesc("Play") ||
+            clickText("Resume") || clickDesc("Resume") ||
+            clickText("Watch") || clickDesc("Watch")
         }
     }
 
+    // =====================================================================
+    //  HELPERS
+    // =====================================================================
     private suspend fun retryAction(name: String, maxRetries: Int = 3, action: () -> Boolean): Boolean {
         repeat(maxRetries) { i ->
             if (action()) {
@@ -529,12 +376,8 @@ class AlarmAccessibilityService : AccessibilityService() {
     private fun clickText(text: String): Boolean {
         return uiController.findAndClick(text = text)
     }
-    
+
     private fun clickDesc(desc: String): Boolean {
         return uiController.findAndClick(description = desc)
-    }
-
-    private fun setText(text: String): Boolean {
-        return uiController.typeText(text)
     }
 }
