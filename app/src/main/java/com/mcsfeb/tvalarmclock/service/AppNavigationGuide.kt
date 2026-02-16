@@ -22,7 +22,7 @@ object AppNavigationGuide {
     private const val TAG = "AppNavGuide"
 
     // =====================================================================
-    //  APP PACKAGE NAMES (verified installed on device)
+    //  APP PACKAGE NAMES + ACTIVITIES (verified on Onn Google TV)
     // =====================================================================
     object Packages {
         const val SLING         = "com.sling"
@@ -34,6 +34,20 @@ object AppNavigationGuide {
         const val YOUTUBE       = "com.google.android.youtube.tv"
         const val PRIME_VIDEO   = "com.amazon.amazonvideo.livingroom"
         const val TUBI          = "com.tubitv"
+    }
+
+    /**
+     * Verified main activity names for each app (tested Feb 2026).
+     * Using wrong activity names causes "Activity does not exist" errors.
+     */
+    object Activities {
+        const val SLING         = "com.sling/.MainActivity"
+        const val DISNEY_PLUS   = "com.disney.disneyplus/com.bamtechmedia.dominguez.main.MainActivity"
+        const val HBO_MAX       = "com.wbd.stream/com.wbd.beam.BeamActivity"
+        const val HULU          = "com.hulu.livingroomplus/.WKFactivity"
+        const val PARAMOUNT     = "com.cbs.ott/com.paramount.android.pplus.features.splash.tv.SplashMediatorActivity"
+        const val NETFLIX       = "com.netflix.ninja/.MainActivity"
+        const val YOUTUBE       = "com.google.android.youtube.tv/com.google.android.apps.youtube.tv.activity.ShellActivity"
     }
 
     // =====================================================================
@@ -230,11 +244,23 @@ object AppNavigationGuide {
 
     /**
      * Create a search intent for Hulu (the only app that supports android.intent.action.SEARCH).
+     * Tested: launches com.hulu.livingroomplus/.WKFactivity with search results.
      */
     fun createHuluSearchIntent(query: String): Intent {
         return Intent(Intent.ACTION_SEARCH).apply {
-            `package` = Packages.HULU
+            component = ComponentName.unflattenFromString(Activities.HULU)
             putExtra("query", query)
+        }
+    }
+
+    /**
+     * Create a Hulu PLAY_CONTENT intent (Hulu-specific action).
+     * Action: hulu.intent.action.PLAY_CONTENT
+     */
+    fun createHuluPlayIntent(contentId: String): Intent {
+        return Intent("hulu.intent.action.PLAY_CONTENT").apply {
+            component = ComponentName.unflattenFromString(Activities.HULU)
+            data = Uri.parse("https://www.hulu.com/watch/$contentId")
         }
     }
 
