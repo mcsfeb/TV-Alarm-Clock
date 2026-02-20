@@ -32,8 +32,10 @@ object AppNavigationGuide {
         const val PARAMOUNT     = "com.cbs.ott"
         const val NETFLIX       = "com.netflix.ninja"
         const val YOUTUBE       = "com.google.android.youtube.tv"
+        const val YOUTUBE_TV    = "com.google.android.youtube.tvunplugged"
         const val PRIME_VIDEO   = "com.amazon.amazonvideo.livingroom"
         const val TUBI          = "com.tubitv"
+        const val SPOTIFY       = "com.spotify.tv.android"
     }
 
     /**
@@ -167,16 +169,17 @@ object AppNavigationGuide {
     ): Intent? {
         return when (packageName) {
             Packages.NETFLIX -> {
-                // Netflix: http://www.netflix.com/watch/{titleId} + source=30
+                // TESTED Feb 2026: nflx:// with source=30 goes straight to playback
                 Intent(Intent.ACTION_VIEW).apply {
-                    data = Uri.parse("http://www.netflix.com/watch/$contentId")
+                    data = Uri.parse("nflx://www.netflix.com/watch/$contentId")
                     `package` = Packages.NETFLIX
                     putExtra("source", "30")  // REQUIRED or lands on home screen
                 }
             }
 
             Packages.DISNEY_PLUS -> {
-                // Disney+: disneyplus://playback/{contentId} OR https://www.disneyplus.com/video/{contentId}
+                // TESTED Feb 2026: https://www.disneyplus.com/video/{id} resolves correctly
+                // Note: Disney+ has a PIN screen that must be bypassed separately
                 Intent(Intent.ACTION_VIEW).apply {
                     data = Uri.parse("https://www.disneyplus.com/video/$contentId")
                     `package` = Packages.DISNEY_PLUS
@@ -184,7 +187,7 @@ object AppNavigationGuide {
             }
 
             Packages.HBO_MAX -> {
-                // HBO Max: https://play.max.com/video/watch/{contentId}
+                // TESTED Feb 2026: Completely opaque UI. Verified authorities: play.hbomax.com and play.max.com
                 Intent(Intent.ACTION_VIEW).apply {
                     data = Uri.parse("https://play.max.com/video/watch/$contentId")
                     `package` = Packages.HBO_MAX
@@ -192,9 +195,8 @@ object AppNavigationGuide {
             }
 
             Packages.HULU -> {
-                // Hulu: https://www.hulu.com/watch/{episodeId}
-                // Also supports: hulu://watch/{episodeId}
-                // AND supports android.intent.action.SEARCH!
+                // TESTED Feb 2026: Completely opaque UI. https deep link is our only option.
+                // hulu://video/ scheme also registered. Needs force-stop before re-launch.
                 Intent(Intent.ACTION_VIEW).apply {
                     data = Uri.parse("https://www.hulu.com/watch/$contentId")
                     `package` = Packages.HULU
@@ -202,36 +204,44 @@ object AppNavigationGuide {
             }
 
             Packages.PARAMOUNT -> {
-                // Paramount+: https://www.paramountplus.com/video/{contentId}
-                // Also: pplus://video/{contentId}
+                // TESTED Feb 2026: /watch/ path works. Player IDs visible after profile bypass.
                 Intent(Intent.ACTION_VIEW).apply {
-                    data = Uri.parse("https://www.paramountplus.com/video/$contentId")
+                    data = Uri.parse("https://www.paramountplus.com/watch/$contentId")
                     `package` = Packages.PARAMOUNT
                 }
             }
 
             Packages.SLING -> {
-                // Sling: slingtv://channel/{channelId} or slingtv://deeplink?{params}
-                // Sling is primarily live TV — deep links target channels, not specific VOD
+                // TESTED Feb 2026: slingtv://watch.sling.com/watch/live?channelName= WORKS
+                // channelName is a query param, NOT a path segment. URL-encode the name.
                 Intent(Intent.ACTION_VIEW).apply {
-                    data = Uri.parse("slingtv://deeplink?type=${contentType}&id=$contentId")
+                    data = Uri.parse("slingtv://watch.sling.com/watch/live?channelName=${Uri.encode(contentId)}")
                     `package` = Packages.SLING
                 }
             }
 
             Packages.YOUTUBE -> {
-                // YouTube: vnd.youtube:{videoId}
+                // TESTED Feb 2026: https:// auto-plays video. vnd.youtube: may NOT auto-play.
                 Intent(Intent.ACTION_VIEW).apply {
-                    data = Uri.parse("vnd.youtube:$contentId")
+                    data = Uri.parse("https://www.youtube.com/watch?v=$contentId")
                     `package` = Packages.YOUTUBE
                 }
             }
 
             Packages.PRIME_VIDEO -> {
-                // Prime Video: https://app.primevideo.com/detail?gti={contentId}
+                // TESTED Feb 2026: Intent filter accepts watch.amazon.com authority.
+                // Use ASIN-based URL for direct playback.
                 Intent(Intent.ACTION_VIEW).apply {
-                    data = Uri.parse("https://app.primevideo.com/detail?gti=$contentId")
+                    data = Uri.parse("https://watch.amazon.com/watch?asin=$contentId")
                     `package` = Packages.PRIME_VIDEO
+                }
+            }
+
+            Packages.TUBI -> {
+                // TESTED Feb 2026: tubitv:// scheme with media-playback authority for auto-play.
+                Intent(Intent.ACTION_VIEW).apply {
+                    data = Uri.parse("tubitv://media-playback/$contentId")
+                    `package` = Packages.TUBI
                 }
             }
 

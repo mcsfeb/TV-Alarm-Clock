@@ -1,7 +1,7 @@
 {
   "_comment": "Deep link configuration for TV Alarm Clock. Edit this file to fix broken deep links without changing code. Version number should be bumped whenever you change anything.",
-  "configVersion": 2,
-  "lastUpdated": "2026-02-09",
+  "configVersion": 4,
+  "lastUpdated": "2026-02-20",
 
   "apps": {
     "NETFLIX": {
@@ -24,12 +24,12 @@
     },
 
     "YOUTUBE": {
-      "_comment": "YouTube on Android TV. Package is .youtube.tv on smart TVs, .youtube on some devices. vnd.youtube scheme is most reliable for video launch.",
+      "_comment": "YouTube on Android TV. TESTED: https:// format auto-plays, vnd.youtube: may NOT auto-play. Use https first.",
       "packageName": "com.google.android.youtube.tv",
       "altPackageNames": ["com.google.android.youtube"],
       "deepLinkFormats": [
-        "vnd.youtube://{id}",
         "https://www.youtube.com/watch?v={id}",
+        "vnd.youtube:{id}",
         "https://youtu.be/{id}"
       ],
       "searchUrl": "https://www.youtube.com/results?search_query={query}",
@@ -41,12 +41,12 @@
     },
 
     "HULU": {
-      "_comment": "Hulu on Android TV. WKFactivity class name is fragile - use package-only targeting. May need force-stop before re-launching to a new deep link.",
+      "_comment": "Hulu on Android TV. TESTED Feb 2026: Completely opaque to uiautomator. Deep link lands on show page, NOT player. Needs force-stop before launch, then 3x DPAD_CENTER (profile bypass + start playback). ContentLaunchService handles this.",
       "packageName": "com.hulu.livingroomplus",
       "altPackageNames": ["com.hulu.plus"],
       "deepLinkFormats": [
-        "hulu://watch/{id}",
-        "https://www.hulu.com/watch/{id}"
+        "https://www.hulu.com/watch/{id}",
+        "hulu://video/{id}"
       ],
       "searchUrl": "https://www.hulu.com/search?q={query}",
       "intentExtras": {},
@@ -73,13 +73,13 @@
     },
 
     "PRIME_VIDEO": {
-      "_comment": "Prime Video on Android TV. The .livingroom package is for TV; ASIN is Amazon's product ID. amzn:// scheme is an alternate.",
+      "_comment": "Prime Video on Android TV. TESTED Feb 2026: Intent filter accepts watch.amazon.com authority. Use ASIN-based URL. The .livingroom package is for TV.",
       "packageName": "com.amazon.amazonvideo.livingroom",
       "altPackageNames": ["com.amazon.avod", "com.amazon.avod.thirdpartyclient"],
       "deepLinkFormats": [
+        "https://watch.amazon.com/watch?asin={id}",
         "https://app.primevideo.com/detail?gti={id}",
-        "amzn://apps/android?asin={id}",
-        "intent://watch.amazon.com/watch?asin={id}#Intent;scheme=https;end"
+        "amzn://apps/android?asin={id}"
       ],
       "searchUrl": "https://app.primevideo.com/search?phrase={query}",
       "intentExtras": {},
@@ -90,10 +90,11 @@
     },
 
     "HBO_MAX": {
-      "_comment": "Max (formerly HBO Max). Package changed from com.hbo.hbonow to com.wbd.stream. Using null searchUrl forces fallback to native ACTION_SEARCH intent.",
+      "_comment": "Max (formerly HBO Max). TESTED: Completely opaque to uiautomator. Verified authorities: play.hbomax.com and play.max.com. Use /video/watch/ for direct playback.",
       "packageName": "com.wbd.stream",
       "altPackageNames": ["com.hbo.hbonow", "com.hbo.max.android.tv"],
       "deepLinkFormats": [
+        "https://play.max.com/video/watch/{id}",
         "https://play.max.com/episode/{id}",
         "https://play.max.com/movie/{id}",
         "https://play.hbomax.com/episode/{id}"
@@ -107,19 +108,19 @@
     },
 
     "SLING_TV": {
-      "_comment": "Sling TV for live TV channels. Channel IDs are internal Sling identifiers.",
+      "_comment": "Sling TV for live TV channels. TESTED Feb 2026: Deep link BROKEN on cold start (player stuck). App must be launched normally first (auto-plays last channel), then deep link sent to switch channels. ContentLaunchService handles this two-phase approach.",
       "packageName": "com.sling",
       "altPackageNames": [],
       "deepLinkFormats": [
-        "https://watch.sling.com/watch/channel/{id}",
-        "sling://channel/{id}"
+        "slingtv://watch.sling.com/watch/live?channelName={id}",
+        "slingtv://open"
       ],
       "searchUrl": null,
       "intentExtras": {},
       "intentClassName": null,
       "needsForceStopBefore": false,
-      "contentIdLabel": "Sling Channel ID",
-      "contentIdHint": "Channel ID or just launch the app to your last channel"
+      "contentIdLabel": "Sling Channel Name",
+      "contentIdHint": "Channel name like 'Fox News', 'CNN', 'ESPN' (use the display name)"
     },
 
     "PEACOCK": {
@@ -139,12 +140,13 @@
     },
 
     "PARAMOUNT_PLUS": {
-      "_comment": "Paramount+ (formerly CBS All Access). Package is still com.cbs.ott.",
+      "_comment": "Paramount+ (formerly CBS All Access). TESTED: /watch/ path works. Also supports /live-tv/ for live channels. pplus:// scheme also registered. Needs profile bypass CENTER press.",
       "packageName": "com.cbs.ott",
       "altPackageNames": [],
       "deepLinkFormats": [
-        "https://www.paramountplus.com/shows/video/{id}",
-        "https://www.paramountplus.com/movies/video/{id}"
+        "https://www.paramountplus.com/watch/{id}",
+        "pplus://www.paramountplus.com/watch/{id}",
+        "https://www.paramountplus.com/live-tv/"
       ],
       "searchUrl": "https://www.paramountplus.com/search/?q={query}",
       "intentExtras": {},
@@ -172,13 +174,14 @@
     },
 
     "TUBI": {
-      "_comment": "Tubi (free streaming). Content IDs are numeric, from the Tubi URL.",
+      "_comment": "Tubi (free streaming). TESTED Feb 2026: Supports tubitv:// scheme with media-playback (auto-play), media-details (show page), and live-news authorities.",
       "packageName": "com.tubitv",
       "altPackageNames": ["com.tubitv.ott"],
       "deepLinkFormats": [
+        "tubitv://media-playback/{id}",
+        "tubitv://media-details/{id}",
         "https://tubitv.com/movies/{id}",
-        "https://tubitv.com/tv-shows/{id}",
-        "tubitv://{id}"
+        "https://tubitv.com/tv-shows/{id}"
       ],
       "searchUrl": "https://tubitv.com/search/{query}",
       "intentExtras": {},
