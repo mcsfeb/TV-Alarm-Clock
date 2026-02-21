@@ -18,6 +18,11 @@
     <!-- See which streaming apps are installed (required on Android 11+) -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
+    <!-- Keep ContentLaunchService alive during streaming app cold-start -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Required on Android 14+ (SDK 34+) when foregroundServiceType="mediaPlayback" -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
     <!-- Stop the app before launching to ensure it starts from a clean state -->
     <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
 
@@ -53,7 +58,7 @@
         <!-- Alarm firing screen - full screen alarm display -->
         <activity
             android:name=".ui.screens.AlarmActivity"
-            android:exported="false"
+            android:exported="true"
             android:turnScreenOn="true"
             android:showWhenLocked="true" />
 
@@ -70,6 +75,12 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- Foreground service for content launch + profile bypass -->
+        <service
+            android:name=".service.ContentLaunchService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <!-- Accessibility service for auto-clicking past profile screens -->
         <service

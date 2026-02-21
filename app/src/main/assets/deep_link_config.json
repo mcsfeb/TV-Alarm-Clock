@@ -90,7 +90,7 @@
     },
 
     "HBO_MAX": {
-      "_comment": "Max (formerly HBO Max). TESTED: Completely opaque to uiautomator. Verified authorities: play.hbomax.com and play.max.com. Use /video/watch/ for direct playback.",
+      "_comment": "Max (formerly HBO Max). TESTED Feb 2026: /video/watch/{uuid} goes straight to playback after profile bypass. Verified with Friends S1E1 (UUID 0e33e070-5a45-425a-b655-9d7a7a6658ba). Completely opaque WebView. Needs 2x DPAD_CENTER for profile bypass.",
       "packageName": "com.wbd.stream",
       "altPackageNames": ["com.hbo.hbonow", "com.hbo.max.android.tv"],
       "deepLinkFormats": [
@@ -103,8 +103,8 @@
       "intentExtras": {},
       "intentClassName": null,
       "needsForceStopBefore": false,
-      "contentIdLabel": "Max Episode/Movie ID",
-      "contentIdHint": "The episode or movie ID from a Max/HBO URL"
+      "contentIdLabel": "Max Episode/Movie UUID",
+      "contentIdHint": "The UUID from a Max URL (e.g., 0e33e070-5a45-425a-b655-9d7a7a6658ba for Friends S1E1)"
     },
 
     "SLING_TV": {

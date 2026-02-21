@@ -30,7 +30,7 @@ enum class StreamingApp(
         displayName = "YouTube",
         packageName = "com.google.android.youtube.tv",
         altPackageNames = listOf("com.google.android.youtube"),
-        deepLinkFormat = "vnd.youtube://{id}",
+        deepLinkFormat = "https://www.youtube.com/watch?v={id}",
         contentIdLabel = "YouTube Video ID",
         description = "The letters after watch?v= in a YouTube link (e.g., dQw4w9WgXcQ)",
         colorHex = 0xFFFF0000
@@ -40,7 +40,7 @@ enum class StreamingApp(
         displayName = "Hulu",
         packageName = "com.hulu.livingroomplus",
         altPackageNames = listOf("com.hulu.plus"),
-        deepLinkFormat = "hulu://watch/{id}",
+        deepLinkFormat = "https://www.hulu.com/watch/{id}",
         contentIdLabel = "Hulu Episode ID",
         description = "The UUID from a Hulu episode URL",
         colorHex = 0xFF1CE783
@@ -69,7 +69,7 @@ enum class StreamingApp(
         displayName = "Max (HBO)",
         packageName = "com.wbd.stream",
         altPackageNames = listOf("com.hbo.hbonow", "com.hbo.max.android.tv"),
-        deepLinkFormat = "https://play.max.com/episode/{id}",
+        deepLinkFormat = "https://play.max.com/video/watch/{id}",
         contentIdLabel = "Max Episode/Movie ID",
         description = "The episode or movie ID from a Max/HBO URL",
         colorHex = 0xFF5822B4
@@ -78,9 +78,9 @@ enum class StreamingApp(
     SLING_TV(
         displayName = "Sling TV",
         packageName = "com.sling",
-        deepLinkFormat = "https://watch.sling.com/watch/channel/{id}",
-        contentIdLabel = "Sling Channel ID",
-        description = "Channel ID or just launch the app to your last channel",
+        deepLinkFormat = "slingtv://watch.sling.com/watch/live?channelName={id}",
+        contentIdLabel = "Sling Channel Name",
+        description = "Channel name like 'Fox News', 'CNN', 'ESPN' (use the display name)",
         colorHex = 0xFF2563EB
     ),
 
@@ -96,7 +96,7 @@ enum class StreamingApp(
     PARAMOUNT_PLUS(
         displayName = "Paramount+",
         packageName = "com.cbs.ott",
-        deepLinkFormat = "https://www.paramountplus.com/shows/video/{id}",
+        deepLinkFormat = "https://www.paramountplus.com/watch/{id}",
         contentIdLabel = "Paramount+ Video ID",
         description = "The video ID from a Paramount+ URL",
         colorHex = 0xFF0064FF
