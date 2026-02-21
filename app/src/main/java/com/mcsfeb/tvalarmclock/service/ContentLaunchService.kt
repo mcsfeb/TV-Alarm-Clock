@@ -208,30 +208,54 @@ class ContentLaunchService : Service() {
     }
 
     /**
-     * HBO MAX — TESTED Feb 2026
+     * HBO MAX (Max) — TESTED Feb 2026 (3/3 pass)
      *
-     * Recipe: Deep link → wait 30s → CENTER → wait 5s → CENTER
-     * - Deep link goes to content but profile picker appears first
+     * Two modes:
+     * A) Deep link with UUID: deep link → 25s → CENTER (profile) → auto-plays specific content
+     * B) Normal launch (APP_ONLY): normal launch → 25s → CENTER (profile) → CENTER (featured) → MEDIA_PLAY
+     *
+     * IMPORTANT: Old urn:hbo:episode format NO LONGER WORKS.
+     * Max now uses UUID format: https://play.max.com/video/watch/{uuid1}/{uuid2}
+     * Deep links always open the app but only navigate to content with correct UUID format.
+     *
      * - App is completely opaque (WebView) — can't detect what's on screen
-     * - First CENTER selects the default profile
-     * - Second CENTER may be needed to dismiss a dialog or start playback
-     * - DO NOT re-send the deep link — HBO remembers it after profile selection
+     * - MEDIA_PLAY guarantees playback in all cases
      */
     private suspend fun launchHboMax(deepLinkUri: String) {
-        Log.i(TAG, "HBO Max: Deep link + 2x CENTER for profile bypass")
+        val hasDeepLink = deepLinkUri.isNotBlank() && deepLinkUri != "APP_ONLY"
 
-        // Send the deep link
-        if (!sendDeepLink("com.wbd.stream", deepLinkUri, emptyMap())) return
+        if (hasDeepLink) {
+            Log.i(TAG, "HBO Max: Deep link + profile CENTER")
+            if (!sendDeepLink("com.wbd.stream", deepLinkUri, emptyMap())) return
+        } else {
+            Log.i(TAG, "HBO Max: Normal launch + profile + play")
+            val launchIntent = packageManager.getLeanbackLaunchIntentForPackage("com.wbd.stream")
+                ?: packageManager.getLaunchIntentForPackage("com.wbd.stream")
+            if (launchIntent == null) {
+                Log.e(TAG, "HBO Max: App not installed!")
+                return
+            }
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(launchIntent)
+        }
 
         // Wait for cold start (HBO is very slow — WebView-based)
-        Log.i(TAG, "HBO Max: Waiting 30s for cold start...")
-        delay(30000)
+        Log.i(TAG, "HBO Max: Waiting 25s for cold start...")
+        delay(25000)
 
-        // Profile bypass: 2 CENTER presses
-        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO profile #1")
-        delay(5000)
-        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO profile #2")
-        delay(5000)
+        // CENTER #1: Select profile
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO profile select")
+        delay(8000)
+
+        if (!hasDeepLink) {
+            // Normal launch needs extra CENTER to select featured content
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO play featured")
+            delay(5000)
+        }
+
+        // MEDIA_PLAY guarantees playback regardless of state
+        sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "HBO force play")
+        delay(3000)
 
         Log.i(TAG, "HBO Max: Done")
     }
@@ -269,52 +293,50 @@ class ContentLaunchService : Service() {
     }
 
     /**
-     * DISNEY+ — TESTED Feb 2026
+     * DISNEY+ — TESTED Feb 2026 (3/3 pass, PIN removed)
      *
-     * Recipe: Deep link → wait 28s → clear auto-entered digits → enter PIN
+     * Recipe: Normal launch → wait 30s → CENTER (profile select → auto-plays)
      *
      * KEY FINDINGS from real testing:
-     * - Disney+ goes straight to PIN screen (no profile picker first)
-     * - Focus starts on digit "5" (row 1, col 1)
-     * - The PIN field auto-fills with "555" on load (3 digits entered by initial focus)
-     * - Must navigate to DELETE and clear first, then enter the real PIN
-     * - PIN pad: [1][2][3] / [4][5][6] / [7][8][9] / [CANCEL][0][DELETE]
+     * - Deep links do NOT reliably navigate to content on Disney+ TV app
+     * - Normal launch → profile select works perfectly (3/3 tests)
+     * - Single CENTER after load selects profile AND starts auto-playing content
+     * - DO NOT send multiple CENTERs — the second CENTER pauses/disrupts playback
+     * - MEDIA_PLAY as final safety net to ensure playback
+     * - If PIN is re-enabled, PIN pad entry logic is available below
      */
     private suspend fun launchDisneyPlus(deepLinkUri: String) {
-        Log.i(TAG, "Disney+: Deep link + PIN entry")
+        Log.i(TAG, "Disney+: Normal launch + profile select")
 
-        // Send the deep link
-        if (!sendDeepLink("com.disney.disneyplus", deepLinkUri, emptyMap())) return
+        // Always use normal launch — deep links are unreliable on Disney+ TV app
+        val launchIntent = packageManager.getLeanbackLaunchIntentForPackage("com.disney.disneyplus")
+            ?: packageManager.getLaunchIntentForPackage("com.disney.disneyplus")
+        if (launchIntent == null) {
+            Log.e(TAG, "Disney+: App not installed!")
+            return
+        }
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(launchIntent)
 
         // Wait for cold start (Disney+ is slow)
-        Log.i(TAG, "Disney+: Waiting 28s for cold start + PIN screen...")
-        delay(28000)
+        Log.i(TAG, "Disney+: Waiting 30s for cold start...")
+        delay(30000)
 
-        // PIN screen appears with focus on "5" (row 1, col 1)
-        // PIN field has auto-entered "555" from the initial focus
-        // Step 1: Navigate to DELETE (row 3, col 2) from "5" (row 1, col 1): DOWN 2, RIGHT 1
-        Log.i(TAG, "Disney+: Navigating to DELETE key to clear auto-entered digits")
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ nav DOWN")
-        delay(500)
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ nav DOWN")
-        delay(500)
-        sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "D+ nav RIGHT")
-        delay(500)
-
-        // Step 2: Press DELETE 4 times to clear any auto-entered digits
-        repeat(4) {
-            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ DELETE #${it+1}")
-            delay(500)
-        }
-        delay(500)
-
-        // Step 3: Enter the PIN from DELETE position (row 3, col 2)
+        // Check if PIN screen is needed
         val pin = getDisneyPin()
         if (pin.isNotEmpty()) {
-            Log.i(TAG, "Disney+: Entering PIN (${pin.length} digits)")
-            enterDisneyPin(pin)
+            Log.i(TAG, "Disney+: Attempting PIN entry (PIN is configured)")
+            enterDisneyPinFromStartPosition(pin)
             delay(5000)
+        } else {
+            // No PIN — single CENTER selects profile and triggers auto-play
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ profile select")
+            delay(8000)
         }
+
+        // MEDIA_PLAY to guarantee playback
+        sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "D+ force play")
+        delay(3000)
 
         Log.i(TAG, "Disney+: Done")
     }
@@ -364,15 +386,16 @@ class ContentLaunchService : Service() {
 
     /**
      * Get the Disney+ PIN from SharedPreferences.
-     * Stored when user configures Disney+ content in the alarm.
+     * Empty string = no PIN (profile has no PIN lock).
+     * Set to PIN digits (e.g., "3472") if PIN is enabled.
      */
     private fun getDisneyPin(): String {
         val prefs = getSharedPreferences("app_settings", Context.MODE_PRIVATE)
-        return prefs.getString("disney_pin", "3472") ?: ""
+        return prefs.getString("disney_pin", "") ?: ""
     }
 
     /**
-     * Enter a Disney+ PIN on the PIN pad.
+     * Enter a Disney+ PIN starting from the PIN screen's initial focus position.
      *
      * PIN pad layout (tested on Onn Google TV):
      *   Row 0: [1] [2] [3]
@@ -380,7 +403,36 @@ class ContentLaunchService : Service() {
      *   Row 2: [7] [8] [9]
      *   Row 3: [CANCEL] [0] [DELETE]
      *
-     * Called after clearing the PIN field, so focus is on DELETE (row=3, col=2).
+     * Initial focus lands on "5" (row 1, col 1).
+     * The PIN field auto-fills with "555" from initial focus.
+     * Step 1: Navigate to DELETE (row 3, col 2) and clear
+     * Step 2: Enter PIN digits from DELETE position
+     */
+    private suspend fun enterDisneyPinFromStartPosition(pin: String) {
+        // Navigate from "5" (row 1, col 1) to DELETE (row 3, col 2): DOWN 2, RIGHT 1
+        Log.i(TAG, "Disney+: Navigating to DELETE key to clear auto-entered digits")
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ nav DOWN")
+        delay(500)
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ nav DOWN")
+        delay(500)
+        sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "D+ nav RIGHT")
+        delay(500)
+
+        // Press DELETE 4 times to clear any auto-entered digits
+        repeat(4) {
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ DELETE #${it+1}")
+            delay(500)
+        }
+        delay(500)
+
+        // Enter the PIN from DELETE position (row 3, col 2)
+        Log.i(TAG, "Disney+: Entering PIN (${pin.length} digits)")
+        enterDisneyPin(pin)
+    }
+
+    /**
+     * Navigate the Disney+ PIN pad and enter digits.
+     * Called from DELETE position (row=3, col=2).
      */
     private suspend fun enterDisneyPin(pin: String) {
         data class Pos(val row: Int, val col: Int)
@@ -404,12 +456,12 @@ class ContentLaunchService : Service() {
             if (rowDiff > 0) {
                 repeat(rowDiff) {
                     sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PIN nav DOWN")
-                    delay(500)
+                    delay(300)
                 }
             } else if (rowDiff < 0) {
                 repeat(-rowDiff) {
                     sendKey(KeyEvent.KEYCODE_DPAD_UP, "PIN nav UP")
-                    delay(500)
+                    delay(300)
                 }
             }
 
@@ -418,12 +470,12 @@ class ContentLaunchService : Service() {
             if (colDiff > 0) {
                 repeat(colDiff) {
                     sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "PIN nav RIGHT")
-                    delay(500)
+                    delay(300)
                 }
             } else if (colDiff < 0) {
                 repeat(-colDiff) {
                     sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "PIN nav LEFT")
-                    delay(500)
+                    delay(300)
                 }
             }
 
