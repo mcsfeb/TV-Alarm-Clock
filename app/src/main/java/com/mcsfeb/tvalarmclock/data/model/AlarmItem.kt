@@ -5,13 +5,16 @@ import java.util.*
 
 /**
  * AlarmItem - Represents a single alarm in the list.
+ *
+ * @param volume Volume level (0-100) to set when alarm fires. -1 = don't change volume.
  */
 data class AlarmItem(
     val id: Int,
     val hour: Int,
     val minute: Int,
     val isActive: Boolean,
-    val streamingContent: StreamingContent? = null // Now holds StreamingContent
+    val streamingContent: StreamingContent? = null,
+    val volume: Int = -1  // 0-100 percentage, -1 = don't change
 ) {
     /** Formatted time string like "7:30 AM" */
     fun formattedTime(): String {

@@ -58,9 +58,10 @@ class ContentLauncher(private val context: Context) {
     fun launchContent(
         packageName: String,
         contentType: String,
-        identifiers: Map<String, String>
+        identifiers: Map<String, String>,
+        volume: Int = -1
     ) {
-        Log.i(TAG, "launchContent: $packageName, type=$contentType, ids=$identifiers")
+        Log.i(TAG, "launchContent: $packageName, type=$contentType, ids=$identifiers, volume=$volume")
 
         // Build the best deep link URI
         val deepLinks = getPrioritizedDeepLinks(packageName, identifiers)
@@ -74,7 +75,7 @@ class ContentLauncher(private val context: Context) {
                 extras["source"] = "30"
             }
 
-            ContentLaunchService.launch(context, packageName, uri, extras)
+            ContentLaunchService.launch(context, packageName, uri, extras, volume)
         } else {
             // No deep links available — fall back to basic app launch + automation
             Log.i(TAG, "No deep links for $packageName, falling back to automation")

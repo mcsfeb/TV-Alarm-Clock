@@ -64,13 +64,24 @@ fun AlarmCard(
                     color = if (alarm.isActive) TextPrimary else TextSecondary
                 )
 
-                Text(
-                    text = alarm.getLabel(),
-                    fontSize = 14.sp,
-                    color = contentColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = alarm.getLabel(),
+                        fontSize = 14.sp,
+                        color = contentColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (alarm.volume >= 0) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "\uD83D\uDD0A ${alarm.volume}%",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                    }
+                }
             }
 
             // Edit button - change time/content

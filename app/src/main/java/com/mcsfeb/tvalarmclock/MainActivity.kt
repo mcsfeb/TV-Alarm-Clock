@@ -61,6 +61,7 @@ class MainActivity : ComponentActivity() {
                 // Time for the alarm being set up
                 var setupHour by remember { mutableIntStateOf(7) }
                 var setupMinute by remember { mutableIntStateOf(0) }
+                var setupVolume by remember { mutableIntStateOf(-1) }
 
                 // Content chosen for the alarm being set up
                 var setupContent by remember { mutableStateOf<StreamingContent?>(null) }
@@ -75,6 +76,7 @@ class MainActivity : ComponentActivity() {
                                 // Start fresh alarm setup
                                 editingAlarmId = -1
                                 setupContent = null
+                                setupVolume = -1
                                 currentScreen = "alarm_setup"
                             },
                             onEditAlarm = { alarm ->
@@ -82,6 +84,7 @@ class MainActivity : ComponentActivity() {
                                 editingAlarmId = alarm.id
                                 setupHour = alarm.hour
                                 setupMinute = alarm.minute
+                                setupVolume = alarm.volume
                                 setupContent = alarm.streamingContent
                                 currentScreen = "alarm_setup"
                             },
@@ -105,6 +108,7 @@ class MainActivity : ComponentActivity() {
                                 val testIntent = Intent(this@MainActivity, AlarmActivity::class.java).apply {
                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     putExtra("ALARM_ID", alarm.id)
+                                    putExtra("VOLUME", alarm.volume)
                                     alarm.streamingContent?.let { content ->
                                         putExtra("CONTENT_APP", content.app.name)
                                         putExtra("CONTENT_ID", content.contentId)
@@ -124,12 +128,13 @@ class MainActivity : ComponentActivity() {
                         AlarmSetupScreen(
                             editingHour = if (editingAlarmId > 0) setupHour else null,
                             editingMinute = if (editingAlarmId > 0) setupMinute else null,
+                            editingVolume = setupVolume,
                             selectedContent = setupContent,
                             onPickContent = {
                                 launchResultMessage = null
                                 currentScreen = "content_picker"
                             },
-                            onSave = { hour, minute, content ->
+                            onSave = { hour, minute, volume, content ->
                                 if (editingAlarmId > 0) {
                                     // Update existing alarm
                                     alarms = alarms.map { alarm ->
@@ -138,6 +143,7 @@ class MainActivity : ComponentActivity() {
                                                 hour = hour,
                                                 minute = minute,
                                                 streamingContent = content,
+                                                volume = volume,
                                                 isActive = true
                                             )
                                             scheduleAlarm(updated)
@@ -152,7 +158,8 @@ class MainActivity : ComponentActivity() {
                                         hour = hour,
                                         minute = minute,
                                         isActive = true,
-                                        streamingContent = content
+                                        streamingContent = content,
+                                        volume = volume
                                     )
                                     alarms = alarms + newAlarm
                                     scheduleAlarm(newAlarm)

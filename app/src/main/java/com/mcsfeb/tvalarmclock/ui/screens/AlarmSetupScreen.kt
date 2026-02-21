@@ -5,6 +5,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,28 +23,31 @@ import com.mcsfeb.tvalarmclock.ui.components.TimePicker
 import com.mcsfeb.tvalarmclock.ui.theme.*
 
 /**
- * AlarmSetupScreen - Set a time, then pick what content to play.
+ * AlarmSetupScreen - Set a time, volume, and pick what content to play.
  *
- * Two-step flow:
+ * Three-step flow:
  * 1. Pick the alarm time (hour + minute + AM/PM)
- * 2. Pick the streaming content (opens ContentPickerScreen)
- *
- * When editing an existing alarm, the time is pre-filled and the user
- * can change just the content or the time.
+ * 2. Set the volume level (0-100% slider)
+ * 3. Pick the streaming content (opens ContentPickerScreen)
  */
 @Composable
 fun AlarmSetupScreen(
     editingHour: Int? = null,
     editingMinute: Int? = null,
+    editingVolume: Int = -1,
     selectedContent: StreamingContent?,
     onPickContent: () -> Unit,
-    onSave: (hour: Int, minute: Int, content: StreamingContent?) -> Unit,
+    onSave: (hour: Int, minute: Int, volume: Int, content: StreamingContent?) -> Unit,
     onBack: () -> Unit
 ) {
     // If editing, pre-fill the time; otherwise start with defaults
     var hour by remember { mutableIntStateOf(editingHour ?: 7) }
     var minute by remember { mutableIntStateOf(editingMinute ?: 0) }
     var timeSet by remember { mutableStateOf(editingHour != null) }
+
+    // Volume: -1 = don't change, 0-100 = set to this level
+    var volumeEnabled by remember { mutableStateOf(editingVolume >= 0) }
+    var volumeLevel by remember { mutableFloatStateOf(if (editingVolume >= 0) editingVolume.toFloat() else 30f) }
 
     Box(
         modifier = Modifier
@@ -74,11 +79,11 @@ fun AlarmSetupScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(32.dp)
+                horizontalArrangement = Arrangement.spacedBy(24.dp)
             ) {
                 // ===== LEFT: Time Picker =====
                 Column(
@@ -87,12 +92,12 @@ fun AlarmSetupScreen(
                 ) {
                     Text(
                         text = "1. Set Alarm Time",
-                        fontSize = 22.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (timeSet) AlarmActiveGreen else AlarmBlue
                     )
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     if (timeSet) {
                         // Show the chosen time with ability to change
@@ -100,11 +105,11 @@ fun AlarmSetupScreen(
                         val amPm = if (hour < 12) "AM" else "PM"
                         Text(
                             text = "%d:%02d %s".format(displayHour, minute, amPm),
-                            fontSize = 64.sp,
+                            fontSize = 56.sp,
                             fontWeight = FontWeight.Bold,
                             color = AlarmActiveGreen
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         TVButton(
                             text = "Change Time",
                             color = TextSecondary,
@@ -120,6 +125,62 @@ fun AlarmSetupScreen(
                             }
                         )
                     }
+
+                    // ===== Volume Control (below time) =====
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Text(
+                        text = "2. Volume",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (volumeEnabled) AlarmActiveGreen else TextSecondary
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(0.9f)
+                    ) {
+                        TVButton(
+                            text = if (volumeEnabled) "ON" else "OFF",
+                            color = if (volumeEnabled) AlarmActiveGreen else TextSecondary,
+                            compact = true,
+                            onClick = { volumeEnabled = !volumeEnabled }
+                        )
+
+                        if (volumeEnabled) {
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "${volumeLevel.toInt()}%",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AlarmActiveGreen,
+                                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                                )
+                                Slider(
+                                    value = volumeLevel,
+                                    onValueChange = { volumeLevel = it },
+                                    valueRange = 0f..100f,
+                                    steps = 9, // 0, 10, 20, ..., 100
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = AlarmActiveGreen,
+                                        activeTrackColor = AlarmActiveGreen,
+                                        inactiveTrackColor = DarkSurfaceVariant
+                                    )
+                                )
+                            }
+                        } else {
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "Volume won't change",
+                                fontSize = 14.sp,
+                                color = TextSecondary
+                            )
+                        }
+                    }
                 }
 
                 // ===== RIGHT: Content Picker =====
@@ -128,13 +189,13 @@ fun AlarmSetupScreen(
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(
-                        text = "2. Choose What to Play",
-                        fontSize = 22.sp,
+                        text = "3. Choose What to Play",
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (selectedContent != null) AlarmActiveGreen else AlarmTeal
                     )
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     if (selectedContent != null) {
                         // Show selected content
@@ -230,7 +291,8 @@ fun AlarmSetupScreen(
                 enabled = timeSet,
                 onClick = {
                     if (timeSet) {
-                        onSave(hour, minute, selectedContent)
+                        val vol = if (volumeEnabled) volumeLevel.toInt() else -1
+                        onSave(hour, minute, vol, selectedContent)
                     }
                 }
             )

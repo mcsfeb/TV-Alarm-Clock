@@ -10,8 +10,8 @@ import com.mcsfeb.tvalarmclock.ui.screens.AlarmActivity
 
 /**
  * AlarmReceiver - Fires when the scheduled alarm time arrives.
- * 
- * Updated to use ContentLauncher for smart content launching.
+ *
+ * Uses ContentLauncher for smart content launching with volume control.
  */
 class AlarmReceiver : BroadcastReceiver() {
 
@@ -27,6 +27,7 @@ class AlarmReceiver : BroadcastReceiver() {
         val alarmRepo = AlarmRepository(context)
         val alarm = alarmRepo.loadAlarms().find { it.id == alarmId }
         val content = alarm?.streamingContent
+        val volume = alarm?.volume ?: -1
 
         // Step 3: Check Smart Launch setting
         val prefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
@@ -37,11 +38,11 @@ class AlarmReceiver : BroadcastReceiver() {
             val identifiers = mutableMapOf<String, String>()
             identifiers["id"] = content.contentId
             identifiers["title"] = content.title
-            
+
             // Map specific fields
             identifiers["showName"] = content.searchQuery.ifBlank { content.title }
             identifiers["channelName"] = content.title // For Sling/Live TV
-            
+
             content.seasonNumber?.let { identifiers["season"] = it.toString() }
             content.episodeNumber?.let { identifiers["episode"] = it.toString() }
 
@@ -55,9 +56,10 @@ class AlarmReceiver : BroadcastReceiver() {
             ContentLauncher.getInstance(context).launchContent(
                 packageName = content.app.packageName,
                 contentType = contentType,
-                identifiers = identifiers
+                identifiers = identifiers,
+                volume = volume
             )
-            
+
             // Note: We skip launching AlarmActivity here to avoid double-launch/interruption.
             // The user wakes up directly to the content.
         } else {
@@ -65,7 +67,8 @@ class AlarmReceiver : BroadcastReceiver() {
             val alarmIntent = Intent(context, AlarmActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 putExtra("ALARM_ID", alarmId)
-                
+                putExtra("VOLUME", volume)
+
                 content?.let {
                     putExtra("CONTENT_APP", it.app.name)
                     putExtra("CONTENT_ID", it.contentId)

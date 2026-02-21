@@ -67,6 +67,7 @@ class AlarmActivity : ComponentActivity() {
         val contentModeName = intent.getStringExtra("CONTENT_MODE") ?: "APP_ONLY"
         val searchQuery = intent.getStringExtra("CONTENT_SEARCH_QUERY") ?: ""
         
+        val volume = intent.getIntExtra("VOLUME", -1)
         val season = if (intent.hasExtra("CONTENT_SEASON")) intent.getIntExtra("CONTENT_SEASON", -1) else null
         val episode = if (intent.hasExtra("CONTENT_EPISODE")) intent.getIntExtra("CONTENT_EPISODE", -1) else null
 
@@ -93,7 +94,7 @@ class AlarmActivity : ComponentActivity() {
 
             val type = if (content.app.name == "SLING_TV" || content.launchMode == LaunchMode.APP_ONLY) "live" else "episode"
             
-            ContentLauncher.getInstance(this).launchContent(content.app.packageName, type, identifiers)
+            ContentLauncher.getInstance(this).launchContent(content.app.packageName, type, identifiers, volume)
             
             WakeUpHelper.releaseWakeLock()
             finish()
