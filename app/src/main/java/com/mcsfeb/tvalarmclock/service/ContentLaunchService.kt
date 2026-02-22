@@ -364,14 +364,28 @@ class ContentLaunchService : Service() {
     /**
      * GENERIC — For YouTube, Paramount+, Prime Video, Tubi, etc.
      *
-     * Recipe: Deep link → wait → done
+     * Recipe: Deep link → wait → done (if deep link available)
+     *         Normal launch → wait → done (if APP_ONLY)
      * - These apps handle deep links cleanly with auto-play
      * - No profile bypass needed
      */
     private suspend fun launchGeneric(packageName: String, deepLinkUri: String, extras: Map<String, String>) {
-        Log.i(TAG, "Generic launch for $packageName")
+        val hasDeepLink = deepLinkUri.isNotBlank() && deepLinkUri != "APP_ONLY"
 
-        if (!sendDeepLink(packageName, deepLinkUri, extras)) return
+        if (hasDeepLink) {
+            Log.i(TAG, "Generic deep link launch for $packageName")
+            if (!sendDeepLink(packageName, deepLinkUri, extras)) return
+        } else {
+            Log.i(TAG, "Generic normal launch for $packageName (no deep link)")
+            val launchIntent = packageManager.getLeanbackLaunchIntentForPackage(packageName)
+                ?: packageManager.getLaunchIntentForPackage(packageName)
+            if (launchIntent == null) {
+                Log.e(TAG, "$packageName: App not installed!")
+                return
+            }
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(launchIntent)
+        }
 
         val waitTime = getAppLoadWaitTime(packageName)
         Log.i(TAG, "Waiting ${waitTime}ms for $packageName...")

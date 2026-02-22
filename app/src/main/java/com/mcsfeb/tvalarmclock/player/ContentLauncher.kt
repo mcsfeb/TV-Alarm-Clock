@@ -63,6 +63,29 @@ class ContentLauncher(private val context: Context) {
     ) {
         Log.i(TAG, "launchContent: $packageName, type=$contentType, ids=$identifiers, volume=$volume")
 
+        // Apps that should ALWAYS use normal launch (deep links broken/unreliable):
+        // - Sling: deep links break the player on cold start
+        // - Disney+: deep links don't navigate to content on TV app
+        val alwaysNormalLaunch = setOf("com.sling", "com.disney.disneyplus")
+
+        if (packageName in alwaysNormalLaunch) {
+            Log.i(TAG, "$packageName: Using normal launch (deep links unreliable)")
+            ContentLaunchService.launch(context, packageName, "APP_ONLY", emptyMap(), volume)
+            return
+        }
+
+        // HBO Max: Only use deep link if content ID looks like a UUID
+        // Old urn:hbo format and non-UUID IDs show "item not found"
+        if (packageName == "com.wbd.stream") {
+            val contentId = identifiers["id"] ?: ""
+            val isUuid = contentId.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", RegexOption.IGNORE_CASE))
+            if (!isUuid) {
+                Log.i(TAG, "HBO Max: Content ID '$contentId' is not a UUID, using normal launch")
+                ContentLaunchService.launch(context, packageName, "APP_ONLY", emptyMap(), volume)
+                return
+            }
+        }
+
         // Build the best deep link URI
         val deepLinks = getPrioritizedDeepLinks(packageName, identifiers)
         if (deepLinks.isNotEmpty()) {
@@ -77,12 +100,9 @@ class ContentLauncher(private val context: Context) {
 
             ContentLaunchService.launch(context, packageName, uri, extras, volume)
         } else {
-            // No deep links available — fall back to basic app launch + automation
-            Log.i(TAG, "No deep links for $packageName, falling back to automation")
-            scope.launch {
-                launchWithAutomation(packageName, contentType, identifiers,
-                    "best_method_${packageName}_default")
-            }
+            // No deep links available — use normal launch via service
+            Log.i(TAG, "No deep links for $packageName, using normal launch")
+            ContentLaunchService.launch(context, packageName, "APP_ONLY", emptyMap(), volume)
         }
     }
 
