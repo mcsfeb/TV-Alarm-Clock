@@ -139,15 +139,30 @@ class ContentLaunchService : Service() {
             setTvVolume(volume)
         }
 
-        // Step 3: Go HOME for a clean state
-        Log.i(TAG, "Step: Going HOME for clean state")
-        sendKey(KeyEvent.KEYCODE_HOME, "HOME")
-        delay(2000)
+        // Step 3 & 4: Go HOME + force-stop for a clean state.
+        // EXCEPTION: Sling and Disney+ skip both HOME and force-stop.
+        //
+        // WHY skip HOME for Sling/Disney+:
+        // ADB key events have ~2-3s of connection latency on first use. If we send
+        // HOME and then immediately call startActivity(), Sling launches before
+        // the HOME event is processed. Then HOME arrives AFTER Sling opens and
+        // pushes Sling to the background — killing the launch.
+        //
+        // WHY skip force-stop for Sling/Disney+:
+        // Both use normal launch (auto-resume preferred). Force-stopping React
+        // Native apps like Sling can corrupt their startup state and cause freezes.
+        val skipCleanup = setOf("com.sling", "com.disney.disneyplus")
+        if (packageName !in skipCleanup) {
+            Log.i(TAG, "Step: Going HOME for clean state")
+            sendKey(KeyEvent.KEYCODE_HOME, "HOME")
+            delay(2000)
 
-        // Step 4: Force-stop the target app for a clean cold start
-        Log.i(TAG, "Step: Force-stopping $packageName")
-        sendShell("am force-stop $packageName")
-        delay(1000)
+            Log.i(TAG, "Step: Force-stopping $packageName")
+            sendShell("am force-stop $packageName")
+            delay(1000)
+        } else {
+            Log.i(TAG, "Step: Skipping HOME + force-stop for $packageName (direct launch)")
+        }
 
         // Step 5: Run the app-specific launch recipe
         when (packageName) {

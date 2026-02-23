@@ -101,10 +101,11 @@ object AdbShell {
                 Log.i(TAG, "Generated new ADB key pair (Android RSA format)")
             }
 
-            // Pre-connect in background so first command is fast
+            // Pre-connect in background so first command is fast.
+            // Must use connectionLock to avoid racing with the first sendShellCommand call.
             Thread {
                 try {
-                    ensureConnected()
+                    synchronized(connectionLock) { ensureConnected() }
                     Log.i(TAG, "ADB pre-connection established")
                 } catch (e: Exception) {
                     Log.d(TAG, "ADB pre-connection failed (will retry on first command): ${e.message}")
