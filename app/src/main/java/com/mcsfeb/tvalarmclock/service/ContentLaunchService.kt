@@ -287,10 +287,19 @@ class ContentLaunchService : Service() {
      * - Force-stop is done in the master sequence, so we skip it here
      */
     private suspend fun launchHulu(deepLinkUri: String, extras: Map<String, String>) {
-        Log.i(TAG, "Hulu: Deep link + 3x CENTER")
+        val hasDeepLink = deepLinkUri.isNotBlank() && deepLinkUri != "APP_ONLY"
 
-        // Send the deep link
-        if (!sendDeepLink("com.hulu.livingroomplus", deepLinkUri, extras)) return
+        if (hasDeepLink) {
+            Log.i(TAG, "Hulu: Deep link + 3x CENTER")
+            if (!sendDeepLink("com.hulu.livingroomplus", deepLinkUri, extras)) return
+        } else {
+            Log.i(TAG, "Hulu: Normal launch (APP_ONLY)")
+            val launchIntent = packageManager.getLeanbackLaunchIntentForPackage("com.hulu.livingroomplus")
+                ?: packageManager.getLaunchIntentForPackage("com.hulu.livingroomplus")
+            if (launchIntent == null) { Log.e(TAG, "Hulu: App not installed!"); return }
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(launchIntent)
+        }
 
         // Wait for Hulu cold start
         Log.i(TAG, "Hulu: Waiting 25s for cold start...")
@@ -363,12 +372,23 @@ class ContentLaunchService : Service() {
      * - Netflix auto-plays with source=30 extra
      * - No profile picker on this TV (deep link bypasses it)
      * - If profile picker appears, one CENTER press selects default
+     * - APP_ONLY: normal launch (for Test Open or no content ID)
      */
     private suspend fun launchNetflix(deepLinkUri: String) {
-        Log.i(TAG, "Netflix: Deep link with source=30")
+        val hasDeepLink = deepLinkUri.isNotBlank() && deepLinkUri != "APP_ONLY"
 
-        val extras = mapOf("source" to "30")
-        if (!sendDeepLink("com.netflix.ninja", deepLinkUri, extras)) return
+        if (hasDeepLink) {
+            Log.i(TAG, "Netflix: Deep link with source=30")
+            val extras = mapOf("source" to "30")
+            if (!sendDeepLink("com.netflix.ninja", deepLinkUri, extras)) return
+        } else {
+            Log.i(TAG, "Netflix: Normal launch (APP_ONLY)")
+            val launchIntent = packageManager.getLeanbackLaunchIntentForPackage("com.netflix.ninja")
+                ?: packageManager.getLaunchIntentForPackage("com.netflix.ninja")
+            if (launchIntent == null) { Log.e(TAG, "Netflix: App not installed!"); return }
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(launchIntent)
+        }
 
         Log.i(TAG, "Netflix: Waiting 15s for auto-play...")
         delay(15000)
