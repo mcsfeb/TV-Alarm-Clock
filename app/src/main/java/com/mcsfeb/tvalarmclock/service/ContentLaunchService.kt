@@ -186,19 +186,25 @@ class ContentLaunchService : Service() {
     // =========================================================================
 
     /**
-     * SLING TV — TESTED Feb 2026 / Updated with channel search
+     * SLING TV — TESTED Feb 2026 / Updated with warm deep link approach
      *
      * Recipe:
      *   Normal launch → wait 45s (React Native cold start) → CENTER (profile dismiss)
-     *   → IF channel name known: searchAndLaunchContent(channelName)
+     *   → wait 5s → IF channel name known: send deep link while Sling is WARM
      *   → ELSE: MEDIA_PLAY (resumes last channel)
      *
-     * WHY SEARCH: Deep links break Sling's ExoPlayer on cold start.
-     * Instead: launch normally, wait, then use KEYCODE_SEARCH + input text to
-     * navigate to the specific channel the user chose.
+     * WHY WARM DEEP LINK (not search): KEYCODE_SEARCH opens the Google TV system
+     * search overlay (com.google.android.katniss), NOT Sling's internal search.
+     * Searching "ESPN" in Google TV search returns NBC and other channels above ESPN
+     * in the results, so DPAD navigation lands on the wrong channel.
+     *
+     * WHY NOT COLD DEEP LINK: slingtv:// deep links on cold start break Sling's
+     * ExoPlayer (player opens, stream gets stuck at shutter). Sending the deep link
+     * AFTER Sling is already running avoids this — the app handles the navigation
+     * internally without reinitialising the player from scratch.
      *
      * WHY 45s: Sling is a React Native app. On Onn Google TV, cold start (including
-     * JS bundle load) takes 35–45s before the profile screen appears.
+     * JS bundle load) takes 35-45s before the profile screen appears.
      */
     private suspend fun launchSling(channelName: String) {
         Log.i(TAG, "Sling: Normal launch (channel='$channelName')")
@@ -221,9 +227,26 @@ class ContentLaunchService : Service() {
         delay(5000)
 
         if (channelName.isNotBlank()) {
-            // Navigate to the specific channel the user chose via search
-            Log.i(TAG, "Sling: Searching for channel '$channelName'")
-            searchAndLaunchContent(channelName, isLiveTV = true)
+            // Sling is now warm — deep link the specific channel directly.
+            // This works reliably once the app is running; it only breaks on cold start.
+            Log.i(TAG, "Sling: Sending warm deep link for '$channelName'")
+            try {
+                val encoded = Uri.encode(channelName)
+                val deepUri = Uri.parse("slingtv://watch.sling.com/watch/live?channelName=$encoded")
+                val deepIntent = Intent(Intent.ACTION_VIEW, deepUri).apply {
+                    setPackage("com.sling")
+                    // SINGLE_TOP: deliver to existing Sling instance instead of new task
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                }
+                startActivity(deepIntent)
+                Log.i(TAG, "Sling: Warm deep link sent for '$channelName'")
+            } catch (e: Exception) {
+                Log.w(TAG, "Sling: Warm deep link failed (${e.message}), trying MEDIA_PLAY fallback")
+            }
+            delay(5000)
+            // Ensure playback starts (deep link may land on channel page, not auto-play)
+            sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling force play")
+            delay(3000)
         } else {
             // No specific channel — just force-play whatever Sling auto-selects
             sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling force play")
