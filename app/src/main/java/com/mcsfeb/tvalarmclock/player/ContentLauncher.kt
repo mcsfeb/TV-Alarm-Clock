@@ -70,7 +70,13 @@ class ContentLauncher(private val context: Context) {
 
         if (packageName in alwaysNormalLaunch) {
             Log.i(TAG, "$packageName: Using normal launch (deep links unreliable)")
-            ContentLaunchService.launch(context, packageName, "APP_ONLY", emptyMap(), volume)
+            // Pass channelName and searchQuery so the service can navigate to the right content
+            val extras = mutableMapOf<String, String>()
+            val channelName = identifiers["channelName"] ?: ""
+            val searchQuery = identifiers["showName"] ?: identifiers["title"] ?: ""
+            if (channelName.isNotBlank()) extras["channelName"] = channelName
+            if (searchQuery.isNotBlank()) extras["searchQuery"] = searchQuery
+            ContentLaunchService.launch(context, packageName, "APP_ONLY", extras, volume)
             return
         }
 
@@ -81,7 +87,10 @@ class ContentLauncher(private val context: Context) {
             val isUuid = contentId.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", RegexOption.IGNORE_CASE))
             if (!isUuid) {
                 Log.i(TAG, "HBO Max: Content ID '$contentId' is not a UUID, using normal launch")
-                ContentLaunchService.launch(context, packageName, "APP_ONLY", emptyMap(), volume)
+                // Pass searchQuery so the service can navigate to the right show
+                val searchQuery = identifiers["showName"] ?: identifiers["title"] ?: ""
+                val extras = if (searchQuery.isNotBlank()) mapOf("searchQuery" to searchQuery) else emptyMap()
+                ContentLaunchService.launch(context, packageName, "APP_ONLY", extras, volume)
                 return
             }
         }

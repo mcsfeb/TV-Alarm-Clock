@@ -22,12 +22,21 @@ import kotlinx.coroutines.*
  * 1. CLEAN STATE FIRST: Before launching ANY app, go HOME and force-stop the target.
  *    This ensures a consistent cold-start every time.
  *
- * 2. MINIMAL ACTIONS: Only send the absolute minimum key events needed.
+ * 2. SEARCH IS THE FALLBACK: When deep links fail or aren't available, use the
+ *    "virtual keyboard" approach: KEYCODE_SEARCH + `input text <query>` via ADB.
+ *    This types directly into the app's search field without navigating the on-screen
+ *    keyboard. Works for Sling channels, HBO shows, Disney+ content, etc.
+ *
+ * 3. MINIMAL ACTIONS: Only send the absolute minimum key events needed.
  *    Extra DPAD_CENTER presses cause apps to freeze or navigate away.
  *
- * 3. VOLUME CONTROL: Set TV volume before launching the app so audio is ready.
+ * 4. GENEROUS TIMEOUTS: Cold starts on Android TV can be 40+ seconds for WebView
+ *    apps (HBO Max, Hulu). Always wait long enough before sending key events.
  *
- * 4. PER-APP RECIPES: Each app has its own tested launch recipe.
+ * 5. VOLUME CONTROL: Set TV volume via both AudioManager AND ADB media command
+ *    so it works whether audio goes through internal or HDMI output.
+ *
+ * 6. PER-APP RECIPES: Each app has its own tested launch recipe.
  *    No generic "profile bypass" — each app is different.
  */
 class ContentLaunchService : Service() {
@@ -88,7 +97,7 @@ class ContentLaunchService : Service() {
         }
         val volume = intent.getIntExtra("VOLUME", -1)
 
-        // Collect extras
+        // Collect extras (channel name, search query, etc.)
         val extras = mutableMapOf<String, String>()
         intent.extras?.let { bundle ->
             for (key in bundle.keySet()) {
@@ -128,13 +137,14 @@ class ContentLaunchService : Service() {
     ) {
         Log.i(TAG, "=== LAUNCH START: $packageName ===")
         Log.i(TAG, "Deep link: $deepLinkUri")
+        Log.i(TAG, "Extras: $extras")
 
         // Step 1: Initialize ADB connection (we'll need it for key events)
         withContext(Dispatchers.IO) {
             AdbShell.init(this@ContentLaunchService)
         }
 
-        // Step 2: Set volume BEFORE launching app
+        // Step 2: Set volume BEFORE launching app (so audio is ready)
         if (volume >= 0) {
             setTvVolume(volume)
         }
@@ -150,11 +160,15 @@ class ContentLaunchService : Service() {
         delay(1000)
 
         // Step 5: Run the app-specific launch recipe
+        // Pull channel name and search query from extras
+        val channelName = extras["channelName"] ?: ""
+        val searchQuery = extras["searchQuery"] ?: ""
+
         when (packageName) {
-            "com.sling" -> launchSling()
+            "com.sling" -> launchSling(channelName)
             "com.hulu.livingroomplus" -> launchHulu(deepLinkUri, extras)
-            "com.wbd.stream" -> launchHboMax(deepLinkUri)
-            "com.disney.disneyplus" -> launchDisneyPlus(deepLinkUri)
+            "com.wbd.stream" -> launchHboMax(deepLinkUri, searchQuery)
+            "com.disney.disneyplus" -> launchDisneyPlus(deepLinkUri, searchQuery)
             "com.netflix.ninja" -> launchNetflix(deepLinkUri)
             else -> launchGeneric(packageName, deepLinkUri, extras)
         }
@@ -164,23 +178,25 @@ class ContentLaunchService : Service() {
 
     // =========================================================================
     //  APP-SPECIFIC LAUNCH RECIPES
-    //  Each recipe is tested and minimal — no extra actions that could cause freezes.
     // =========================================================================
 
     /**
-     * SLING TV — TESTED Feb 2026
+     * SLING TV — TESTED Feb 2026 / Updated with channel search
      *
-     * Recipe: Normal launch → wait 35s → CENTER (profile) → wait → MEDIA_PLAY
-     * - Sling auto-plays the last watched channel on launch
-     * - Deep links are BROKEN (cold start = stuck player, warm = stops playback)
-     * - Cold start shows profile picker that blocks playback
-     * - CENTER dismisses the profile picker
-     * - IMPORTANT: Don't use multiple CENTERs — CENTER toggles play/pause on the player!
-     *   Using even CENTERs = paused. Using MEDIA_PLAY always forces playback.
-     * - Final MEDIA_PLAY guarantees playback regardless of state
+     * Recipe:
+     *   Normal launch → wait 45s (React Native cold start) → CENTER (profile dismiss)
+     *   → IF channel name known: searchAndLaunchContent(channelName)
+     *   → ELSE: MEDIA_PLAY (resumes last channel)
+     *
+     * WHY SEARCH: Deep links break Sling's ExoPlayer on cold start.
+     * Instead: launch normally, wait, then use KEYCODE_SEARCH + input text to
+     * navigate to the specific channel the user chose.
+     *
+     * WHY 45s: Sling is a React Native app. On Onn Google TV, cold start (including
+     * JS bundle load) takes 35–45s before the profile screen appears.
      */
-    private suspend fun launchSling() {
-        Log.i(TAG, "Sling: Normal launch + CENTER + MEDIA_PLAY")
+    private suspend fun launchSling(channelName: String) {
+        Log.i(TAG, "Sling: Normal launch (channel='$channelName')")
 
         val launchIntent = packageManager.getLeanbackLaunchIntentForPackage("com.sling")
             ?: packageManager.getLaunchIntentForPackage("com.sling")
@@ -191,44 +207,47 @@ class ContentLaunchService : Service() {
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         startActivity(launchIntent)
 
-        // Wait for Sling to fully load (React Native, slow cold start)
-        Log.i(TAG, "Sling: Waiting 35s for load...")
-        delay(35000)
+        // Wait for Sling to fully load (React Native, very slow cold start)
+        Log.i(TAG, "Sling: Waiting 45s for load...")
+        delay(45000)
 
         // CENTER to dismiss profile picker (if shown)
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling profile dismiss")
         delay(5000)
 
-        // MEDIA_PLAY to guarantee playback starts
-        // Unlike CENTER (which toggles play/pause), MEDIA_PLAY always plays
-        sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling force play")
-        delay(3000)
-
-        Log.i(TAG, "Sling: Done (playing last channel)")
+        if (channelName.isNotBlank()) {
+            // Navigate to the specific channel the user chose via search
+            Log.i(TAG, "Sling: Searching for channel '$channelName'")
+            searchAndLaunchContent(channelName, isLiveTV = true)
+        } else {
+            // No specific channel — just force-play whatever Sling auto-selects
+            sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling force play")
+            delay(3000)
+            Log.i(TAG, "Sling: Done (playing last channel)")
+        }
     }
 
     /**
-     * HBO MAX (Max) — TESTED Feb 2026 (3/3 pass)
+     * HBO MAX (Max) — TESTED Feb 2026 / Updated with search support
      *
      * Two modes:
-     * A) Deep link with UUID: deep link → 25s → CENTER (profile) → auto-plays specific content
-     * B) Normal launch (APP_ONLY): normal launch → 25s → CENTER (profile) → CENTER (featured) → MEDIA_PLAY
+     * A) Deep link with UUID: deep link → 35s → CENTER (profile) → auto-plays specific content
+     * B) Normal launch with search: normal → 35s → CENTER (profile) → search for show → play
+     * C) Normal launch (no search query): normal → 35s → CENTER (profile) → CENTER (featured) → MEDIA_PLAY
      *
-     * IMPORTANT: Old urn:hbo:episode format NO LONGER WORKS.
-     * Max now uses UUID format: https://play.max.com/video/watch/{uuid1}/{uuid2}
-     * Deep links always open the app but only navigate to content with correct UUID format.
+     * WHY 35s: HBO Max is WebView-based, very slow cold start. 25s was not enough.
      *
-     * - App is completely opaque (WebView) — can't detect what's on screen
-     * - MEDIA_PLAY guarantees playback in all cases
+     * NOTE: UUID format = https://play.max.com/video/watch/{uuid1}/{uuid2}
+     * Old urn:hbo:episode format no longer works.
      */
-    private suspend fun launchHboMax(deepLinkUri: String) {
+    private suspend fun launchHboMax(deepLinkUri: String, searchQuery: String) {
         val hasDeepLink = deepLinkUri.isNotBlank() && deepLinkUri != "APP_ONLY"
 
         if (hasDeepLink) {
-            Log.i(TAG, "HBO Max: Deep link + profile CENTER")
+            Log.i(TAG, "HBO Max: Deep link launch")
             if (!sendDeepLink("com.wbd.stream", deepLinkUri, emptyMap())) return
         } else {
-            Log.i(TAG, "HBO Max: Normal launch + profile + play")
+            Log.i(TAG, "HBO Max: Normal launch (search='$searchQuery')")
             val launchIntent = packageManager.getLeanbackLaunchIntentForPackage("com.wbd.stream")
                 ?: packageManager.getLaunchIntentForPackage("com.wbd.stream")
             if (launchIntent == null) {
@@ -239,23 +258,31 @@ class ContentLaunchService : Service() {
             startActivity(launchIntent)
         }
 
-        // Wait for cold start (HBO is very slow — WebView-based)
-        Log.i(TAG, "HBO Max: Waiting 25s for cold start...")
-        delay(25000)
+        // Wait for cold start — HBO Max WebView is very slow, 35s is safer than 25s
+        Log.i(TAG, "HBO Max: Waiting 35s for cold start...")
+        delay(35000)
 
         // CENTER #1: Select profile
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO profile select")
         delay(8000)
 
         if (!hasDeepLink) {
-            // Normal launch needs extra CENTER to select featured content
-            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO play featured")
-            delay(5000)
+            if (searchQuery.isNotBlank()) {
+                // Search for the specific show the user chose
+                Log.i(TAG, "HBO Max: Searching for '$searchQuery'")
+                searchAndLaunchContent(searchQuery, isLiveTV = false)
+            } else {
+                // No specific content — play whatever is featured
+                sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO play featured")
+                delay(5000)
+                sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "HBO force play")
+                delay(3000)
+            }
+        } else {
+            // Deep link: content should auto-play after profile select
+            sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "HBO ensure play")
+            delay(3000)
         }
-
-        // MEDIA_PLAY guarantees playback regardless of state
-        sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "HBO force play")
-        delay(3000)
 
         Log.i(TAG, "HBO Max: Done")
     }
@@ -293,20 +320,24 @@ class ContentLaunchService : Service() {
     }
 
     /**
-     * DISNEY+ — TESTED Feb 2026 (3/3 pass, PIN removed)
+     * DISNEY+ — TESTED Feb 2026 / Updated with search support and longer timeout
      *
-     * Recipe: Normal launch → wait 30s → CENTER (profile select → auto-plays)
+     * Recipe:
+     *   Normal launch → wait 40s → profile select (CENTER or PIN)
+     *   → IF search query: searchAndLaunchContent(searchQuery)
+     *   → ELSE: MEDIA_PLAY (auto-plays Continue Watching)
      *
-     * KEY FINDINGS from real testing:
-     * - Deep links do NOT reliably navigate to content on Disney+ TV app
-     * - Normal launch → profile select works perfectly (3/3 tests)
-     * - Single CENTER after load selects profile AND starts auto-playing content
-     * - DO NOT send multiple CENTERs — the second CENTER pauses/disrupts playback
-     * - MEDIA_PLAY as final safety net to ensure playback
-     * - If PIN is re-enabled, PIN pad entry logic is available below
+     * WHY SEARCH: Deep links don't reliably navigate on Disney+ TV app.
+     * After profile selection, search for the specific show the user chose.
+     *
+     * WHY 40s: Disney+ cold start can take 35-40s on Onn Google TV.
+     * The 30s wait was causing profile press to fire before the screen appeared.
+     *
+     * DO NOT send multiple CENTERs — the second CENTER pauses playback.
+     * MEDIA_PLAY is the safe way to ensure playback starts.
      */
-    private suspend fun launchDisneyPlus(deepLinkUri: String) {
-        Log.i(TAG, "Disney+: Normal launch + profile select")
+    private suspend fun launchDisneyPlus(deepLinkUri: String, searchQuery: String) {
+        Log.i(TAG, "Disney+: Normal launch (search='$searchQuery')")
 
         // Always use normal launch — deep links are unreliable on Disney+ TV app
         val launchIntent = packageManager.getLeanbackLaunchIntentForPackage("com.disney.disneyplus")
@@ -318,27 +349,32 @@ class ContentLaunchService : Service() {
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         startActivity(launchIntent)
 
-        // Wait for cold start (Disney+ is slow)
-        Log.i(TAG, "Disney+: Waiting 30s for cold start...")
-        delay(30000)
+        // Wait for cold start — increased from 30s to 40s for reliability
+        Log.i(TAG, "Disney+: Waiting 40s for cold start...")
+        delay(40000)
 
-        // Check if PIN screen is needed
+        // Handle profile selection (with or without PIN)
         val pin = getDisneyPin()
         if (pin.isNotEmpty()) {
-            Log.i(TAG, "Disney+: Attempting PIN entry (PIN is configured)")
+            Log.i(TAG, "Disney+: Attempting PIN entry")
             enterDisneyPinFromStartPosition(pin)
             delay(5000)
         } else {
-            // No PIN — single CENTER selects profile and triggers auto-play
+            // Single CENTER selects profile
             sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ profile select")
             delay(8000)
         }
 
-        // MEDIA_PLAY to guarantee playback
-        sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "D+ force play")
-        delay(3000)
-
-        Log.i(TAG, "Disney+: Done")
+        if (searchQuery.isNotBlank()) {
+            // Search for the specific show the user chose
+            Log.i(TAG, "Disney+: Searching for '$searchQuery'")
+            searchAndLaunchContent(searchQuery, isLiveTV = false)
+        } else {
+            // No specific content — MEDIA_PLAY starts auto-play (Continue Watching)
+            sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "D+ force play")
+            delay(3000)
+            Log.i(TAG, "Disney+: Done (auto-play)")
+        }
     }
 
     /**
@@ -347,7 +383,6 @@ class ContentLaunchService : Service() {
      * Recipe: Deep link (nflx:// + source=30) → wait 15s → done
      * - Netflix auto-plays with source=30 extra
      * - No profile picker on this TV (deep link bypasses it)
-     * - If profile picker appears, one CENTER press selects default
      */
     private suspend fun launchNetflix(deepLinkUri: String) {
         Log.i(TAG, "Netflix: Deep link with source=30")
@@ -395,14 +430,76 @@ class ContentLaunchService : Service() {
     }
 
     // =========================================================================
-    //  DISNEY+ PIN ENTRY
+    //  VIRTUAL KEYBOARD / SEARCH NAVIGATION
     // =========================================================================
 
     /**
-     * Get the Disney+ PIN from SharedPreferences.
-     * Empty string = no PIN (profile has no PIN lock).
-     * Set to PIN digits (e.g., "3472") if PIN is enabled.
+     * Search for content by name using ADB text injection.
+     *
+     * This is the "virtual keyboard" approach: instead of navigating the on-screen
+     * keyboard key by key, we use `adb shell input text <query>` to type directly
+     * into whatever search field is focused. This bypasses all keyboard navigation
+     * and works even with complex on-screen keyboards.
+     *
+     * Flow:
+     *   1. KEYCODE_SEARCH (84) — opens the app's search UI
+     *   2. `input text <query>` — types the text directly into the search field
+     *   3. KEYCODE_ENTER (66) — submits the search
+     *   4. DPAD_DOWN x2 — moves focus to the first result
+     *   5. DPAD_CENTER (23) — opens the selected result
+     *   6. DPAD_CENTER (23) again — for live TV: selects "Watch Live" or confirms
+     *   7. KEYCODE_MEDIA_PLAY — ensures playback starts
+     *
+     * @param query The channel name (e.g., "ESPN") or show name (e.g., "Succession")
+     * @param isLiveTV True for live TV channels (needs extra confirm step)
      */
+    private suspend fun searchAndLaunchContent(query: String, isLiveTV: Boolean) {
+        Log.i(TAG, "searchAndLaunchContent: '$query' (isLiveTV=$isLiveTV)")
+
+        // Step 1: Open search (KEYCODE_SEARCH = 84)
+        sendShell("input keyevent 84")
+        delay(2500)
+
+        // Step 2: Type the query directly into the search field
+        // Replace spaces with %s (Android input command's space escape)
+        // This avoids quoting issues when passing through ADB shell
+        val inputText = query.trim().replace(" ", "%s")
+        Log.i(TAG, "Typing search text: '$inputText'")
+        sendShell("input text $inputText")
+        delay(3000)
+
+        // Step 3: Submit search (KEYCODE_ENTER = 66)
+        sendShell("input keyevent 66")
+        delay(3000)
+
+        // Step 4: Navigate down to first result
+        // First DOWN exits the search bar, second DOWN reaches results
+        sendShell("input keyevent 20")  // DPAD_DOWN
+        delay(500)
+        sendShell("input keyevent 20")  // DPAD_DOWN
+        delay(500)
+
+        // Step 5: Select the first result
+        sendShell("input keyevent 23")  // DPAD_CENTER
+        delay(3000)
+
+        // Step 6: For live TV, there's often a "Watch Live" or "Play" option to confirm
+        if (isLiveTV) {
+            sendShell("input keyevent 23")  // DPAD_CENTER — confirms "Watch Live"
+            delay(2000)
+        }
+
+        // Step 7: Ensure playback starts
+        sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Search: force play")
+        delay(2000)
+
+        Log.i(TAG, "searchAndLaunchContent: Done")
+    }
+
+    // =========================================================================
+    //  DISNEY+ PIN ENTRY
+    // =========================================================================
+
     private fun getDisneyPin(): String {
         val prefs = getSharedPreferences("app_settings", Context.MODE_PRIVATE)
         return prefs.getString("disney_pin", "") ?: ""
@@ -418,13 +515,12 @@ class ContentLaunchService : Service() {
      *   Row 3: [CANCEL] [0] [DELETE]
      *
      * Initial focus lands on "5" (row 1, col 1).
-     * The PIN field auto-fills with "555" from initial focus.
-     * Step 1: Navigate to DELETE (row 3, col 2) and clear
+     * Step 1: Navigate to DELETE (row 3, col 2) and clear auto-entered digits
      * Step 2: Enter PIN digits from DELETE position
      */
     private suspend fun enterDisneyPinFromStartPosition(pin: String) {
-        // Navigate from "5" (row 1, col 1) to DELETE (row 3, col 2): DOWN 2, RIGHT 1
         Log.i(TAG, "Disney+: Navigating to DELETE key to clear auto-entered digits")
+        // Navigate from "5" (row 1, col 1) to DELETE (row 3, col 2): DOWN 2, RIGHT 1
         sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ nav DOWN")
         delay(500)
         sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ nav DOWN")
@@ -439,15 +535,10 @@ class ContentLaunchService : Service() {
         }
         delay(500)
 
-        // Enter the PIN from DELETE position (row 3, col 2)
         Log.i(TAG, "Disney+: Entering PIN (${pin.length} digits)")
         enterDisneyPin(pin)
     }
 
-    /**
-     * Navigate the Disney+ PIN pad and enter digits.
-     * Called from DELETE position (row=3, col=2).
-     */
     private suspend fun enterDisneyPin(pin: String) {
         data class Pos(val row: Int, val col: Int)
 
@@ -458,42 +549,26 @@ class ContentLaunchService : Service() {
             '0' to Pos(3, 1)
         )
 
-        // Start from DELETE position (row 3, col 2)
         var currentRow = 3
         var currentCol = 2
 
         for ((i, digit) in pin.withIndex()) {
             val target = digitPositions[digit] ?: continue
 
-            // Navigate vertically
             val rowDiff = target.row - currentRow
             if (rowDiff > 0) {
-                repeat(rowDiff) {
-                    sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PIN nav DOWN")
-                    delay(300)
-                }
+                repeat(rowDiff) { sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PIN nav DOWN"); delay(300) }
             } else if (rowDiff < 0) {
-                repeat(-rowDiff) {
-                    sendKey(KeyEvent.KEYCODE_DPAD_UP, "PIN nav UP")
-                    delay(300)
-                }
+                repeat(-rowDiff) { sendKey(KeyEvent.KEYCODE_DPAD_UP, "PIN nav UP"); delay(300) }
             }
 
-            // Navigate horizontally
             val colDiff = target.col - currentCol
             if (colDiff > 0) {
-                repeat(colDiff) {
-                    sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "PIN nav RIGHT")
-                    delay(300)
-                }
+                repeat(colDiff) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "PIN nav RIGHT"); delay(300) }
             } else if (colDiff < 0) {
-                repeat(-colDiff) {
-                    sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "PIN nav LEFT")
-                    delay(300)
-                }
+                repeat(-colDiff) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "PIN nav LEFT"); delay(300) }
             }
 
-            // Press the digit
             sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PIN digit ${i + 1}: $digit")
             delay(500)
 
@@ -508,23 +583,43 @@ class ContentLaunchService : Service() {
 
     /**
      * Set the TV volume to a specific level (0-100).
-     * Uses AudioManager for the device's own volume, which controls HDMI-CEC
-     * volume on most Android TV devices.
+     *
+     * Uses TWO methods to ensure the volume actually changes:
+     *
+     * Method 1: AudioManager.setStreamVolume() — controls Android's software volume.
+     *   Works for internal audio output and most HDMI setups.
+     *
+     * Method 2: ADB `media volume --stream 3 --set N` — runs via ADB shell with
+     *   elevated permissions, bypasses any app-level restrictions. Stream 3 = MUSIC.
+     *
+     * If AudioManager fails (e.g., restricted by the OS), the ADB command is the backup.
      */
-    private fun setTvVolume(targetVolume: Int) {
-        try {
-            val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-            val scaledVolume = (targetVolume * maxVolume / 100).coerceIn(0, maxVolume)
+    private suspend fun setTvVolume(targetVolume: Int) {
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val scaledVolume = (targetVolume * maxVolume / 100).coerceIn(0, maxVolume)
 
+        // Method 1: AudioManager (fastest, no ADB required)
+        try {
             audioManager.setStreamVolume(
                 AudioManager.STREAM_MUSIC,
                 scaledVolume,
-                0 // No UI flag — don't show volume bar on screen
+                0 // No UI — don't show volume bar on screen
             )
-            Log.i(TAG, "Volume set to $targetVolume% (device level: $scaledVolume/$maxVolume)")
+            Log.i(TAG, "Volume: AudioManager set $targetVolume% → level $scaledVolume/$maxVolume")
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to set volume: ${e.message}")
+            Log.w(TAG, "Volume: AudioManager failed: ${e.message}")
+        }
+
+        // Method 2: ADB media volume command (works even if AudioManager is restricted)
+        // Runs after ADB is initialized so connection is ready
+        withContext(Dispatchers.IO) {
+            try {
+                val result = AdbShell.sendShellCommand("media volume --stream 3 --set $scaledVolume")
+                Log.i(TAG, "Volume: ADB media volume --set $scaledVolume success=$result")
+            } catch (e: Exception) {
+                Log.w(TAG, "Volume: ADB command failed: ${e.message}")
+            }
         }
     }
 
@@ -548,7 +643,8 @@ class ContentLaunchService : Service() {
     private suspend fun sendShell(command: String) {
         withContext(Dispatchers.IO) {
             try {
-                AdbShell.sendShellCommand(command)
+                val ok = AdbShell.sendShellCommand(command)
+                Log.i(TAG, "Shell '$command': success=$ok")
             } catch (e: Exception) {
                 Log.w(TAG, "Shell command failed ($command): ${e.message}")
             }
