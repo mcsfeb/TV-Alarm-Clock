@@ -171,6 +171,8 @@ class ContentLaunchService : Service() {
             "com.wbd.stream" -> launchHboMax(deepLinkUri)
             "com.disney.disneyplus" -> launchDisneyPlus(deepLinkUri)
             "com.netflix.ninja" -> launchNetflix(deepLinkUri)
+            "com.amazon.amazonvideo.livingroom" -> launchPrimeVideo(deepLinkUri)
+            "com.cbs.ott" -> launchParamountPlus(deepLinkUri)
             else -> launchGeneric(packageName, deepLinkUri, extras)
         }
 
@@ -397,12 +399,93 @@ class ContentLaunchService : Service() {
     }
 
     /**
-     * GENERIC — For YouTube, Paramount+, Prime Video, Tubi, etc.
+     * PRIME VIDEO — TESTED Feb 2026
+     *
+     * Recipe: Deep link (https://watch.amazon.com/watch?asin={id}) → 18s → CENTER (profile) → 5s → MEDIA_PLAY
+     *
+     * - Deep link with ASIN navigates to the content page or auto-plays
+     * - If "Who's watching?" profile picker appears: CENTER selects default profile
+     * - If content page: CENTER presses the Play button (usually focused)
+     * - If already playing: CENTER pauses → MEDIA_PLAY resumes (net result: no harm)
+     * - MEDIA_PLAY guarantees playback regardless of state
+     * - APP_ONLY: normal launch
+     */
+    private suspend fun launchPrimeVideo(deepLinkUri: String) {
+        val hasDeepLink = deepLinkUri.isNotBlank() && deepLinkUri != "APP_ONLY"
+
+        if (hasDeepLink) {
+            Log.i(TAG, "Prime Video: Deep link + profile CENTER + MEDIA_PLAY")
+            if (!sendDeepLink("com.amazon.amazonvideo.livingroom", deepLinkUri, emptyMap())) return
+        } else {
+            Log.i(TAG, "Prime Video: Normal launch (APP_ONLY)")
+            val launchIntent = packageManager.getLeanbackLaunchIntentForPackage("com.amazon.amazonvideo.livingroom")
+                ?: packageManager.getLaunchIntentForPackage("com.amazon.amazonvideo.livingroom")
+            if (launchIntent == null) { Log.e(TAG, "Prime Video: App not installed!"); return }
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(launchIntent)
+        }
+
+        Log.i(TAG, "Prime Video: Waiting 18s for cold start...")
+        delay(18000)
+
+        // CENTER: selects profile (if "Who's watching?") or Play button on detail page
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Prime profile/play")
+        delay(5000)
+
+        // MEDIA_PLAY: guarantees playback
+        sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Prime force play")
+        delay(3000)
+
+        Log.i(TAG, "Prime Video: Done")
+    }
+
+    /**
+     * PARAMOUNT+ — TESTED Feb 2026
+     *
+     * Recipe: Deep link (https://www.paramountplus.com/watch/{id}) → 18s → CENTER (profile) → 5s → MEDIA_PLAY
+     *
+     * - Deep link navigates to content page after cold start
+     * - If profile picker appears: CENTER selects default profile
+     * - If content page: CENTER presses Play (usually first focused item)
+     * - MEDIA_PLAY guarantees playback
+     * - APP_ONLY: normal launch
+     */
+    private suspend fun launchParamountPlus(deepLinkUri: String) {
+        val hasDeepLink = deepLinkUri.isNotBlank() && deepLinkUri != "APP_ONLY"
+
+        if (hasDeepLink) {
+            Log.i(TAG, "Paramount+: Deep link + profile CENTER + MEDIA_PLAY")
+            if (!sendDeepLink("com.cbs.ott", deepLinkUri, emptyMap())) return
+        } else {
+            Log.i(TAG, "Paramount+: Normal launch (APP_ONLY)")
+            val launchIntent = packageManager.getLeanbackLaunchIntentForPackage("com.cbs.ott")
+                ?: packageManager.getLaunchIntentForPackage("com.cbs.ott")
+            if (launchIntent == null) { Log.e(TAG, "Paramount+: App not installed!"); return }
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(launchIntent)
+        }
+
+        Log.i(TAG, "Paramount+: Waiting 18s for cold start...")
+        delay(18000)
+
+        // CENTER: selects profile (if "Who's watching?") or Play button on content page
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ profile/play")
+        delay(5000)
+
+        // MEDIA_PLAY: guarantees playback
+        sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "P+ force play")
+        delay(3000)
+
+        Log.i(TAG, "Paramount+: Done")
+    }
+
+    /**
+     * GENERIC — For YouTube, Tubi, and other apps that auto-play from deep links.
      *
      * Recipe: Deep link → wait → done (if deep link available)
      *         Normal launch → wait → done (if APP_ONLY)
      * - These apps handle deep links cleanly with auto-play
-     * - No profile bypass needed
+     * - No profile bypass needed (YouTube, Tubi handle this internally)
      */
     private suspend fun launchGeneric(packageName: String, deepLinkUri: String, extras: Map<String, String>) {
         val hasDeepLink = deepLinkUri.isNotBlank() && deepLinkUri != "APP_ONLY"
