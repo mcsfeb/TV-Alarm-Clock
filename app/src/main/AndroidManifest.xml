@@ -76,6 +76,17 @@
             </intent-filter>
         </receiver>
 
+        <!-- Exported test receiver for ADB live testing of ContentLaunchService.
+             Trigger via: adb shell am broadcast -a com.mcsfeb.tvalarmclock.TEST_LAUNCH
+             with extras: pkg, uri, channelName, searchQuery, vol -->
+        <receiver
+            android:name=".service.TestLaunchReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.mcsfeb.tvalarmclock.TEST_LAUNCH" />
+            </intent-filter>
+        </receiver>
+
         <!-- Foreground service for content launch + profile bypass -->
         <service
             android:name=".service.ContentLaunchService"

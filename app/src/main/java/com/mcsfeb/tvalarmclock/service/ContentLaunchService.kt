@@ -70,6 +70,8 @@ class ContentLaunchService : Service() {
     }
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    // Track the active launch so a second intent cancels the first before starting.
+    private var currentLaunchJob: kotlinx.coroutines.Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -107,7 +109,10 @@ class ContentLaunchService : Service() {
             }
         }
 
-        serviceScope.launch {
+        // Cancel any previous launch that's still in progress (e.g., mid-delay)
+        // before starting the new one. Prevents two concurrent sequences fighting each other.
+        currentLaunchJob?.cancel()
+        currentLaunchJob = serviceScope.launch {
             performLaunch(packageName, deepLinkUri, extras, volume)
             stopSelf()
         }
