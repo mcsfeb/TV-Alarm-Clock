@@ -88,50 +88,71 @@ object ContentIdMapper {
      * TMDB IDs are stable and don't change.
      */
     private val popularContentMap: Map<Int, Map<StreamingApp, String>> = mapOf(
-        // --- Netflix Originals ---
+        // --- Netflix ---
+        // Netflix content IDs: numeric title ID from the URL at netflix.com/title/{id}
         66732 to mapOf(StreamingApp.NETFLIX to "80057281"),    // Stranger Things
         1396 to mapOf(StreamingApp.NETFLIX to "70143836"),     // Breaking Bad
-        100088 to mapOf(StreamingApp.NETFLIX to "81091393"),   // The Last of Us (HBO originally, but for mapping)
         93405 to mapOf(StreamingApp.NETFLIX to "80236318"),    // Squid Game
-        71446 to mapOf(StreamingApp.NETFLIX to "80100172"),    // Money Heist
+        71446 to mapOf(StreamingApp.NETFLIX to "80100172"),    // Money Heist (La Casa de Papel)
         1402 to mapOf(StreamingApp.NETFLIX to "70286137"),     // The Walking Dead
-        76479 to mapOf(StreamingApp.NETFLIX to "80186863"),    // The Umbrella Academy
+        75006 to mapOf(StreamingApp.NETFLIX to "80186863"),    // The Umbrella Academy (TMDB: 75006)
         73021 to mapOf(StreamingApp.NETFLIX to "80192098"),    // Disenchantment
         44217 to mapOf(StreamingApp.NETFLIX to "70143830"),    // Vikings
         95557 to mapOf(StreamingApp.NETFLIX to "81166747"),    // Inventing Anna
-        82856 to mapOf(                                         // The Mandalorian
-            StreamingApp.DISNEY_PLUS to "mandalorian"
-        ),
-        84958 to mapOf(                                         // Loki
-            StreamingApp.DISNEY_PLUS to "loki"
-        ),
-        114461 to mapOf(                                        // Ahsoka
-            StreamingApp.DISNEY_PLUS to "ahsoka"
-        ),
-        92749 to mapOf(                                         // Moon Knight
-            StreamingApp.DISNEY_PLUS to "moon-knight"
-        ),
+
+        // --- Disney+ ---
+        // Disney+ content IDs: alphanumeric ID from the URL at disneyplus.com/series/{slug}/{id}
+        // NOTE: Deep links are unreliable on the Disney+ TV app; ContentLaunchService always
+        // does a normal launch + profile select for Disney+ regardless of content ID.
+        // These IDs are stored but not actively used for deep linking.
+        // To find real IDs: open disneyplus.com, browse to show, copy the ID from the URL.
+        // Example URL: https://www.disneyplus.com/series/the-mandalorian/sWp2UaK7QLNM
+        //                                                                  ^^^^^^^^^^^^^ this is the ID
 
         // --- Hulu ---
-        136315 to mapOf(StreamingApp.HULU to "the-bear"),      // The Bear
-        125988 to mapOf(StreamingApp.HULU to "only-murders-in-the-building"), // Only Murders in the Building
+        // Hulu content IDs MUST be UUIDs (e.g., "b835adf4-b0f0-4dc6-86d4-b4a1e53de19f").
+        // Slug strings like "the-bear" are NOT valid; Hulu will show an error page.
+        // To find a real UUID: browse to the episode on hulu.com, copy the UUID from the URL.
+        // Example URL: https://www.hulu.com/watch/b835adf4-b0f0-4dc6-86d4-b4a1e53de19f
+        //                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ UUID goes here
+        // No entries here until real UUIDs are added from the Hulu website.
 
         // --- HBO / Max ---
-        94997 to mapOf(StreamingApp.HBO_MAX to "house-of-the-dragon"), // House of the Dragon
-        1399 to mapOf(StreamingApp.HBO_MAX to "game-of-thrones"),      // Game of Thrones
-        87108 to mapOf(StreamingApp.HBO_MAX to "euphoria"),            // Euphoria
-        79744 to mapOf(StreamingApp.HBO_MAX to "the-last-of-us"),      // The Last of Us
-        153312 to mapOf(StreamingApp.HBO_MAX to "the-penguin"),        // The Penguin
+        // Max content IDs MUST be UUIDs. Slugs like "house-of-the-dragon" are NOT valid;
+        // ContentLauncher detects non-UUID IDs and falls back to normal app launch.
+        // To find a real UUID: browse to the episode on max.com, copy the UUID from the URL.
+        // Example URL: https://play.max.com/video/watch/0e33e070-5a45-425a-b655-9d7a7a6658ba/...
+        //                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ UUID
+        // Verified UUID (Friends S1E1): 0e33e070-5a45-425a-b655-9d7a7a6658ba
+        // No slug entries — slugs fall back to APP_ONLY; add real UUIDs from max.com URLs.
 
         // --- Prime Video ---
-        76479 to mapOf(StreamingApp.PRIME_VIDEO to "B09WV8GCZN"),     // The Boys (also on Netflix above)
+        // Prime Video content IDs are ASINs (Amazon Standard Identification Numbers).
+        // To find: browse to the show/movie on Amazon, copy the ASIN from the URL.
+        // Example URL: https://www.amazon.com/gp/video/detail/B09WV8GCZN/
+        //                                                     ^^^^^^^^^^^ ASIN
+        76479 to mapOf(StreamingApp.PRIME_VIDEO to "B09WV8GCZN"),     // The Boys
         60059 to mapOf(StreamingApp.PRIME_VIDEO to "B08BZNQGB2"),     // The Expanse
 
+        // --- Paramount+ ---
+        // Paramount+ content IDs: alphanumeric ID from the URL at paramountplus.com/shows/{slug}/episodes/{id}/
+        // To find: browse to the episode on paramountplus.com, copy the ID from the URL.
+        // Example: https://www.paramountplus.com/shows/star-trek-strange-new-worlds/episodes/CpcWiNoSvbk5bKEHHX1MDA/
+        //                                                                                      ^^^^^^^^^^^^^^^^^^^^^^^^ ID
+
+        // --- Tubi ---
+        // Tubi content IDs: numeric ID from the URL at tubitv.com/movies/{id} or tubitv.com/series/{id}
+        // To find: browse to the show on tubitv.com, copy the numeric ID from the URL.
+        // Example: https://tubitv.com/series/300007157/avatar-the-last-airbender
+        //                                  ^^^^^^^^^ numeric ID
+
         // --- YouTube (popular channels/videos by creator) ---
-        // YouTube uses video IDs, not TMDB IDs, so this mapping is less useful.
-        // Users will typically search YouTube directly or paste video IDs.
+        // YouTube uses video IDs (11-character string), not TMDB IDs.
+        // Users should manually enter video IDs or use the Manual Entry picker.
+        // Example: https://www.youtube.com/watch?v=dQw4w9WgXcQ → video ID is "dQw4w9WgXcQ"
 
         // --- Popular Movies ---
+        // Prime Video ASINs are stable and verified:
         550 to mapOf(                                           // Fight Club
             StreamingApp.PRIME_VIDEO to "B00A3Y4LDI"
         ),
@@ -139,11 +160,12 @@ object ContentIdMapper {
             StreamingApp.PRIME_VIDEO to "B00BT7QDJI"
         ),
         238 to mapOf(                                           // The Godfather
-            StreamingApp.PRIME_VIDEO to "B001GJ3CPC",
-            StreamingApp.PARAMOUNT_PLUS to "the-godfather"
-        ),
-        155 to mapOf(                                           // The Dark Knight
-            StreamingApp.HBO_MAX to "the-dark-knight"
+            StreamingApp.PRIME_VIDEO to "B001GJ3CPC"
+            // Paramount+ removed: slug IDs like "the-godfather" are not valid.
+            // Add real P+ ID from paramountplus.com URL when available.
         )
+        // The Dark Knight (TMDB 155): HBO Max requires a UUID, not a slug.
+        // To add: find the UUID from play.max.com URL and add:
+        //   155 to mapOf(StreamingApp.HBO_MAX to "<uuid-here>")
     )
 }

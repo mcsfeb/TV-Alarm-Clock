@@ -74,13 +74,15 @@ class ContentLauncher(private val context: Context) {
             return
         }
 
-        // HBO Max: Only use deep link if content ID looks like a UUID
-        // Old urn:hbo format and non-UUID IDs show "item not found"
-        if (packageName == "com.wbd.stream") {
+        // HBO Max: Only use deep link if content ID looks like a UUID.
+        // Old urn:hbo format and non-UUID IDs show "item not found".
+        // Hulu: Also requires UUID format — slugs like "the-bear" generate invalid URLs.
+        val uuidRegex = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", RegexOption.IGNORE_CASE)
+        if (packageName == "com.wbd.stream" || packageName == "com.hulu.livingroomplus") {
             val contentId = identifiers["id"] ?: ""
-            val isUuid = contentId.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", RegexOption.IGNORE_CASE))
-            if (!isUuid) {
-                Log.i(TAG, "HBO Max: Content ID '$contentId' is not a UUID, using normal launch")
+            val appLabel = if (packageName == "com.wbd.stream") "HBO Max" else "Hulu"
+            if (!contentId.matches(uuidRegex)) {
+                Log.i(TAG, "$appLabel: Content ID '$contentId' is not a UUID — using normal launch to avoid invalid URL")
                 ContentLaunchService.launch(context, packageName, "APP_ONLY", emptyMap(), volume)
                 return
             }

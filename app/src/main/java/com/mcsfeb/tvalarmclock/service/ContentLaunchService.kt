@@ -140,22 +140,35 @@ class ContentLaunchService : Service() {
         }
 
         // Step 3 & 4: Go HOME + force-stop for a clean state.
-        // EXCEPTION: Sling and Disney+ skip both HOME and force-stop.
         //
+        // EXCEPTION A — skipCleanup (Sling, Disney+): Skip BOTH HOME and force-stop.
         // WHY skip HOME for Sling/Disney+:
         // ADB key events have ~2-3s of connection latency on first use. If we send
         // HOME and then immediately call startActivity(), Sling launches before
         // the HOME event is processed. Then HOME arrives AFTER Sling opens and
         // pushes Sling to the background — killing the launch.
-        //
         // WHY skip force-stop for Sling/Disney+:
         // Both use normal launch (auto-resume preferred). Force-stopping React
         // Native apps like Sling can corrupt their startup state and cause freezes.
+        //
+        // EXCEPTION B — skipHome (Paramount+, Prime Video): Skip HOME but keep force-stop.
+        // WHY: Sending HOME triggers Android's APP_SWITCH_DISALLOW window (~2-4s).
+        // If ContentLaunchService was started with a short BAL (Background Activity
+        // Launch) token from the AlarmActivity, the token expires before the launch
+        // intent fires, resulting in "Background activity launch blocked" errors.
+        // Skipping HOME avoids APP_SWITCH_DISALLOW while force-stop still ensures
+        // the target app cold-starts cleanly. FLAG_ACTIVITY_CLEAR_TASK in the intent
+        // also clears any existing task, equivalent to a soft restart.
         val skipCleanup = setOf("com.sling", "com.disney.disneyplus")
+        val skipHome = setOf("com.cbs.ott", "com.amazon.amazonvideo.livingroom")
         if (packageName !in skipCleanup) {
-            Log.i(TAG, "Step: Going HOME for clean state")
-            sendKey(KeyEvent.KEYCODE_HOME, "HOME")
-            delay(2000)
+            if (packageName !in skipHome) {
+                Log.i(TAG, "Step: Going HOME for clean state")
+                sendKey(KeyEvent.KEYCODE_HOME, "HOME")
+                delay(2000)
+            } else {
+                Log.i(TAG, "Step: Skipping HOME for $packageName (avoiding APP_SWITCH_DISALLOW/BAL block)")
+            }
 
             Log.i(TAG, "Step: Force-stopping $packageName")
             sendShell("am force-stop $packageName")
