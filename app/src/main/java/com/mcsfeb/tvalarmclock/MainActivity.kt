@@ -9,10 +9,12 @@ import androidx.compose.runtime.*
 import com.mcsfeb.tvalarmclock.data.config.DeepLinkConfig
 import com.mcsfeb.tvalarmclock.data.config.DeepLinkResolver
 import com.mcsfeb.tvalarmclock.data.model.AlarmItem
+import com.mcsfeb.tvalarmclock.data.model.LaunchMode
 import com.mcsfeb.tvalarmclock.data.model.StreamingContent
 import com.mcsfeb.tvalarmclock.data.repository.AlarmRepository
 import com.mcsfeb.tvalarmclock.player.ContentLauncher
 import com.mcsfeb.tvalarmclock.service.AlarmScheduler
+import com.mcsfeb.tvalarmclock.service.ContentLaunchService
 import com.mcsfeb.tvalarmclock.ui.screens.AlarmActivity
 import com.mcsfeb.tvalarmclock.ui.screens.AlarmSetupScreen
 import com.mcsfeb.tvalarmclock.ui.screens.ContentPickerScreen
@@ -183,7 +185,26 @@ class MainActivity : ComponentActivity() {
                                 currentScreen = "alarm_setup"
                             },
                             onTestLaunch = { content ->
-                                // Construct identifiers for ContentLauncher
+                                // SEARCH MODE: Route to ContentLaunchService with search URL
+                                if (content.launchMode == LaunchMode.SEARCH && content.searchQuery.isNotBlank()) {
+                                    val searchUrlTemplate = DeepLinkConfig.getSearchUrl(content.app.name)
+                                    if (searchUrlTemplate != null) {
+                                        val encodedQuery = content.searchQuery.trim().replace(" ", "+")
+                                        val searchUrl = searchUrlTemplate
+                                            .replace("{query}", encodedQuery)
+                                            .replace("{phrase}", encodedQuery)
+                                        // Pass season/episode so the service navigates to the specific episode
+                                        val testExtras = buildMap<String, String> {
+                                            content.seasonNumber?.let { s -> if (s > 0) put("season", s.toString()) }
+                                            content.episodeNumber?.let { e -> if (e > 0) put("episode", e.toString()) }
+                                        }
+                                        ContentLaunchService.launch(this@MainActivity, content.app.packageName, searchUrl, testExtras, -1)
+                                        launchResultMessage = "Search launch sent: ${content.app.displayName} → ${content.searchQuery}"
+                                        return@ContentPickerScreen
+                                    }
+                                }
+
+                                // DEEP_LINK / APP_ONLY mode
                                 val identifiers = mutableMapOf<String, String>()
                                 identifiers["id"] = content.contentId
                                 identifiers["title"] = content.title
@@ -191,10 +212,8 @@ class MainActivity : ComponentActivity() {
                                 identifiers["channelName"] = content.title
                                 content.seasonNumber?.let { identifiers["season"] = it.toString() }
                                 content.episodeNumber?.let { identifiers["episode"] = it.toString() }
-                                
-                                // Determine type
-                                val type = if (content.app.name == "SLING_TV") "live" else "episode"
 
+                                val type = if (content.app.name == "SLING_TV") "live" else "episode"
                                 contentLauncher.launchContent(content.app.packageName, type, identifiers)
                                 launchResultMessage = "Launch command sent..."
                             },

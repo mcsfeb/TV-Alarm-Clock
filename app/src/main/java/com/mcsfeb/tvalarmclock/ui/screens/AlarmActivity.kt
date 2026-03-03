@@ -19,12 +19,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mcsfeb.tvalarmclock.data.config.DeepLinkConfig
 import com.mcsfeb.tvalarmclock.data.model.LaunchMode
 import com.mcsfeb.tvalarmclock.data.model.StreamingApp
 import com.mcsfeb.tvalarmclock.data.model.StreamingContent
 import com.mcsfeb.tvalarmclock.player.ContentLauncher
 import com.mcsfeb.tvalarmclock.service.AlarmAccessibilityService
 import com.mcsfeb.tvalarmclock.service.AlarmScheduler
+import com.mcsfeb.tvalarmclock.service.ContentLaunchService
 import com.mcsfeb.tvalarmclock.service.WakeUpHelper
 import com.mcsfeb.tvalarmclock.ui.components.TVButton
 import com.mcsfeb.tvalarmclock.ui.theme.*
@@ -80,28 +82,88 @@ class AlarmActivity : ComponentActivity() {
             StreamingContent(it, contentId, contentTitle, launchMode, searchQuery, season, episode)
         }
 
-        // IMMEDIATE LAUNCH LOGIC
+        // ---- LAUNCH CONTENT ----
         if (content != null) {
-            // If we have content to launch, do it immediately and close this activity.
-            // This bypasses the countdown UI entirely.
-            val identifiers = mutableMapOf<String, String>()
-            identifiers["id"] = content.contentId
-            identifiers["title"] = content.title
-            identifiers["showName"] = content.searchQuery.ifBlank { content.title }
-            identifiers["channelName"] = content.title
-            content.seasonNumber?.let { s -> identifiers["season"] = s.toString() }
-            content.episodeNumber?.let { e -> identifiers["episode"] = e.toString() }
+            // Start ContentLaunchService with the right URL/mode for this content.
+            //
+            // CRITICAL — Do NOT finish() immediately!
+            //
+            // Android 10+ BAL_BLOCK: ContentLaunchService (background foreground service) calls
+            // startActivity() to open the streaming app at ~T+3 to T+7 seconds after it starts.
+            // Android blocks that call with "inVisibleTask: false" unless our app has a visible
+            // Activity on screen at that moment.
+            //
+            // AlarmActivity IS that visible Activity. By staying visible for 10 seconds we give
+            // ContentLaunchService's coroutine enough time to call startActivity() successfully.
+            // After 10s the streaming app is already open and we auto-dismiss.
 
-            val type = if (content.app.name == "SLING_TV" || content.launchMode == LaunchMode.APP_ONLY) "live" else "episode"
-            
-            ContentLauncher.getInstance(this).launchContent(content.app.packageName, type, identifiers, volume)
-            
-            WakeUpHelper.releaseWakeLock()
-            finish()
-            return // Exit onCreate, do not set content view
+            // Build the service launch URL based on content mode.
+            DeepLinkConfig.load(this)
+            val launchUrl: String = when {
+                content.launchMode == LaunchMode.SEARCH && content.searchQuery.isNotBlank() -> {
+                    val template = DeepLinkConfig.getSearchUrl(content.app.name)
+                    if (template != null) {
+                        val encoded = content.searchQuery.trim().replace(" ", "+")
+                        template.replace("{query}", encoded).replace("{phrase}", encoded)
+                    } else {
+                        "APP_ONLY"  // App has no search URL (e.g., Sling)
+                    }
+                }
+                else -> "APP_ONLY"  // APP_ONLY / DEEP_LINK handled below via ContentLauncher
+            }
+
+            if (launchUrl != "APP_ONLY") {
+                // SEARCH mode: route directly to ContentLaunchService with search URL.
+                // Pass season/episode so the service can navigate to the specific episode.
+                val launchExtras = buildMap<String, String> {
+                    content.seasonNumber?.let { s -> if (s > 0) put("season", s.toString()) }
+                    content.episodeNumber?.let { e -> if (e > 0) put("episode", e.toString()) }
+                }
+                ContentLaunchService.launch(this, content.app.packageName, launchUrl, launchExtras, volume)
+            } else {
+                // DEEP_LINK / APP_ONLY: ContentLauncher builds the correct deep link URI
+                val identifiers = mutableMapOf<String, String>()
+                identifiers["id"] = content.contentId
+                identifiers["title"] = content.title
+                identifiers["showName"] = content.searchQuery.ifBlank { content.title }
+                identifiers["channelName"] = content.title
+                content.seasonNumber?.let { s -> identifiers["season"] = s.toString() }
+                content.episodeNumber?.let { e -> identifiers["episode"] = e.toString() }
+                val type = if (content.app.name == "SLING_TV" || content.launchMode == LaunchMode.APP_ONLY) "live" else "episode"
+                ContentLauncher.getInstance(this).launchContent(content.app.packageName, type, identifiers, volume)
+            }
+
+            // Auto-dismiss after 10 seconds (streaming app should be open by then).
+            // User can also dismiss or snooze early via the buttons.
+            lifecycleScope.launch {
+                delay(10000)
+                WakeUpHelper.releaseWakeLock()
+                finish()
+            }
+
+            // Show alarm UI while ContentLaunchService warms up the streaming app.
+            setContent {
+                TVAlarmClockTheme {
+                    AlarmFiringScreen(
+                        streamingContent = content,
+                        onDismiss = {
+                            WakeUpHelper.releaseWakeLock()
+                            finish()
+                        },
+                        onLaunchContent = { /* ContentLaunchService handles this */ },
+                        onSnooze = {
+                            val snoozeTime = System.currentTimeMillis() + 5 * 60 * 1000L
+                            alarmScheduler.schedule(snoozeTime, alarmId = alarmId)
+                            WakeUpHelper.releaseWakeLock()
+                            finish()
+                        }
+                    )
+                }
+            }
+            return
         }
 
-        // FALLBACK UI (Only for alarms with NO content)
+        // ---- NO CONTENT: show the alarm UI with manual dismiss/snooze ----
         if (!AlarmAccessibilityService.isRunning()) {
             Toast.makeText(this, "Enable 'Smart Assistant' in settings for reliable launching!", Toast.LENGTH_LONG).show()
         }
@@ -109,7 +171,7 @@ class AlarmActivity : ComponentActivity() {
         setContent {
             TVAlarmClockTheme {
                 AlarmFiringScreen(
-                    streamingContent = null, // Content handled above, so this is always null here
+                    streamingContent = null,
                     onDismiss = {
                         WakeUpHelper.releaseWakeLock()
                         finish()

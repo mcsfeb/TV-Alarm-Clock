@@ -129,6 +129,11 @@ class ContentLaunchService : Service() {
         Log.i(TAG, "=== LAUNCH START: $packageName ===")
         Log.i(TAG, "Deep link: $deepLinkUri")
 
+        // Extract season/episode (1 = default when not specified)
+        val season  = extras["season"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        val episode = extras["episode"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        Log.i(TAG, "Target: S${season}E${episode}")
+
         // Step 1: Initialize ADB connection (we'll need it for key events)
         withContext(Dispatchers.IO) {
             AdbShell.init(this@ContentLaunchService)
@@ -151,11 +156,13 @@ class ContentLaunchService : Service() {
 
         // Step 5: Run the app-specific launch recipe
         when (packageName) {
-            "com.sling" -> launchSling()
-            "com.hulu.livingroomplus" -> launchHulu(deepLinkUri, extras)
-            "com.wbd.stream" -> launchHboMax(deepLinkUri)
-            "com.disney.disneyplus" -> launchDisneyPlus(deepLinkUri)
-            "com.netflix.ninja" -> launchNetflix(deepLinkUri)
+            "com.sling"                         -> launchSling()
+            "com.hulu.livingroomplus"           -> launchHulu(deepLinkUri, extras, season, episode)
+            "com.wbd.stream"                    -> launchHboMax(deepLinkUri, season, episode)
+            "com.disney.disneyplus"             -> launchDisneyPlus(deepLinkUri, season, episode)
+            "com.netflix.ninja"                 -> launchNetflix(deepLinkUri)
+            "com.cbs.ott"                       -> launchParamountPlus(deepLinkUri, season, episode)
+            "com.amazon.amazonvideo.livingroom" -> launchPrimeVideo(deepLinkUri, season, episode)
             else -> launchGeneric(packageName, deepLinkUri, extras)
         }
 
@@ -210,52 +217,93 @@ class ContentLaunchService : Service() {
     /**
      * HBO MAX (Max) — TESTED Feb 2026 (3/3 pass)
      *
-     * Two modes:
-     * A) Deep link with UUID: deep link → 25s → CENTER (profile) → auto-plays specific content
-     * B) Normal launch (APP_ONLY): normal launch → 25s → CENTER (profile) → CENTER (featured) → MEDIA_PLAY
+     * Three modes:
+     * A) Search URL: https://play.max.com/search?q=Friends
+     *    → deep link → 15s → CENTER (profile) → 15s → sendInputText(query) → 3s
+     *    → RIGHT×6 → CENTER (show page) → episode navigation → CENTER (play)
+     *    - Max is WebView-based: input text works perfectly
+     *    - Search results pre-show query; typing refines it
      *
-     * IMPORTANT: Old urn:hbo:episode format NO LONGER WORKS.
-     * Max now uses UUID format: https://play.max.com/video/watch/{uuid1}/{uuid2}
-     * Deep links always open the app but only navigate to content with correct UUID format.
+     * B) Content deep link (UUID format): https://play.max.com/video/watch/{uuid1}/{uuid2}
+     *    → deep link → 25s → CENTER (profile) → 8s → MEDIA_PLAY
+     *    - Old urn:hbo:episode format NO LONGER WORKS — must use UUID format
      *
-     * - App is completely opaque (WebView) — can't detect what's on screen
-     * - MEDIA_PLAY guarantees playback in all cases
+     * C) Normal launch (APP_ONLY):
+     *    → normal launch → 25s → CENTER (profile) → 8s → CENTER (featured) → MEDIA_PLAY
      */
-    private suspend fun launchHboMax(deepLinkUri: String) {
-        val hasDeepLink = deepLinkUri.isNotBlank() && deepLinkUri != "APP_ONLY"
+    private suspend fun launchHboMax(deepLinkUri: String, season: Int = 1, episode: Int = 1) {
+        val isSearchUrl = deepLinkUri.contains("/search")
+        val hasContentLink = deepLinkUri.isNotBlank() && deepLinkUri != "APP_ONLY" && !isSearchUrl
 
-        if (hasDeepLink) {
-            Log.i(TAG, "HBO Max: Deep link + profile CENTER")
-            if (!sendDeepLink("com.wbd.stream", deepLinkUri, emptyMap())) return
-        } else {
-            Log.i(TAG, "HBO Max: Normal launch + profile + play")
-            val launchIntent = packageManager.getLeanbackLaunchIntentForPackage("com.wbd.stream")
-                ?: packageManager.getLaunchIntentForPackage("com.wbd.stream")
-            if (launchIntent == null) {
-                Log.e(TAG, "HBO Max: App not installed!")
-                return
+        when {
+            isSearchUrl -> {
+                // Mode A: Search-based launch (tested: Friends, Blue Bloods-style shows)
+                val query = extractQuery(deepLinkUri)
+                Log.i(TAG, "HBO Max: Search mode for '$query' → target S${season}E${episode}")
+                if (!sendDeepLink("com.wbd.stream", deepLinkUri, emptyMap())) return
+
+                Log.i(TAG, "HBO Max: Waiting 15s (WebView cold start)...")
+                delay(15000)
+
+                // Profile select
+                sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO profile select")
+                delay(15000)
+
+                // Type search query (WebView keyboard — input text works)
+                sendInputText(query)
+                delay(3000)
+
+                // Navigate from search bar to first result card
+                repeat(6) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "HBO RIGHT"); delay(200) }
+
+                // Open show detail page
+                sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO open show")
+                delay(6000)
+
+                // Navigate to the specific season/episode then play
+                navigateToEpisode(season, episode, "HBO")
             }
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            startActivity(launchIntent)
+
+            hasContentLink -> {
+                // Mode B: Direct content UUID link
+                Log.i(TAG, "HBO Max: Content deep link + profile CENTER")
+                if (!sendDeepLink("com.wbd.stream", deepLinkUri, emptyMap())) return
+
+                Log.i(TAG, "HBO Max: Waiting 25s for cold start...")
+                delay(25000)
+
+                sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO profile select")
+                delay(8000)
+
+                sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "HBO force play")
+                delay(3000)
+            }
+
+            else -> {
+                // Mode C: Normal launch (no deep link)
+                Log.i(TAG, "HBO Max: Normal launch + profile + featured")
+                val launchIntent = packageManager.getLeanbackLaunchIntentForPackage("com.wbd.stream")
+                    ?: packageManager.getLaunchIntentForPackage("com.wbd.stream")
+                if (launchIntent == null) {
+                    Log.e(TAG, "HBO Max: App not installed!")
+                    return
+                }
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(launchIntent)
+
+                Log.i(TAG, "HBO Max: Waiting 25s for cold start...")
+                delay(25000)
+
+                sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO profile select")
+                delay(8000)
+
+                sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO play featured")
+                delay(5000)
+
+                sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "HBO force play")
+                delay(3000)
+            }
         }
-
-        // Wait for cold start (HBO is very slow — WebView-based)
-        Log.i(TAG, "HBO Max: Waiting 25s for cold start...")
-        delay(25000)
-
-        // CENTER #1: Select profile
-        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO profile select")
-        delay(8000)
-
-        if (!hasDeepLink) {
-            // Normal launch needs extra CENTER to select featured content
-            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO play featured")
-            delay(5000)
-        }
-
-        // MEDIA_PLAY guarantees playback regardless of state
-        sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "HBO force play")
-        delay(3000)
 
         Log.i(TAG, "HBO Max: Done")
     }
@@ -263,16 +311,16 @@ class ContentLaunchService : Service() {
     /**
      * HULU — TESTED Feb 2026
      *
-     * Recipe: Force-stop → deep link → wait 25s → CENTER → wait 3s → CENTER → wait 10s → CENTER
+     * Recipe: Force-stop → deep link → wait 25s → CENTER (profile) → wait 3s
+     *         → CENTER (select show) → wait 10s → episode navigation → CENTER (play)
      * - Hulu ignores deep links if app is already running (must force-stop first)
-     * - Deep link lands on show page, not player
+     * - Deep link lands on show search results page
      * - First CENTER: profile bypass
-     * - Second CENTER: selects show/episode
-     * - Third CENTER: starts playback
-     * - Force-stop is done in the master sequence, so we skip it here
+     * - Second CENTER: opens show detail page
+     * - Then navigate to specific season/episode before playing
      */
-    private suspend fun launchHulu(deepLinkUri: String, extras: Map<String, String>) {
-        Log.i(TAG, "Hulu: Deep link + 3x CENTER")
+    private suspend fun launchHulu(deepLinkUri: String, extras: Map<String, String>, season: Int = 1, episode: Int = 1) {
+        Log.i(TAG, "Hulu: Deep link → S${season}E${episode}")
 
         // Send the deep link
         if (!sendDeepLink("com.hulu.livingroomplus", deepLinkUri, extras)) return
@@ -281,62 +329,99 @@ class ContentLaunchService : Service() {
         Log.i(TAG, "Hulu: Waiting 25s for cold start...")
         delay(25000)
 
-        // Profile bypass + start playback
+        // Profile bypass
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Hulu profile")
         delay(3000)
-        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Hulu select")
+
+        // Open show detail page (first search result)
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Hulu open show")
         delay(10000)
-        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Hulu play")
-        delay(3000)
+
+        // Navigate to the specific season/episode then play
+        navigateToEpisode(season, episode, "Hulu")
 
         Log.i(TAG, "Hulu: Done")
     }
 
     /**
-     * DISNEY+ — TESTED Feb 2026 (3/3 pass, PIN removed)
+     * DISNEY+ — TESTED Feb 2026
      *
-     * Recipe: Normal launch → wait 30s → CENTER (profile select → auto-plays)
+     * Two modes:
+     * A) Search URL: https://www.disneyplus.com/search?q=Moana
+     *    → search URL deeplink (BYPASSES PIN screen!) → 30s → typeOnDisneyKeyboard(query)
+     *    → 2s → RIGHT×(7-lastCol) → CENTER (show page) → 8s → episode navigation → CENTER (play)
+     *    - Native keyboard: input text DOES NOT WORK; must use DPAD grid navigation
+     *    - Keyboard layout: 7 cols × 6 rows, always starts focused on 'a' (row=0,col=0)
+     *    - Search URL bypass is critical — avoids PIN entirely
+     *    - FIX: 500ms stabilization delay before typing prevents stray 'a' key
      *
-     * KEY FINDINGS from real testing:
-     * - Deep links do NOT reliably navigate to content on Disney+ TV app
-     * - Normal launch → profile select works perfectly (3/3 tests)
-     * - Single CENTER after load selects profile AND starts auto-playing content
-     * - DO NOT send multiple CENTERs — the second CENTER pauses/disrupts playback
-     * - MEDIA_PLAY as final safety net to ensure playback
-     * - If PIN is re-enabled, PIN pad entry logic is available below
+     * B) Normal launch (APP_ONLY or blank deep link):
+     *    → normal launch → 30s → profile CENTER → MEDIA_PLAY
+     *    - If PIN configured in SharedPrefs, enters it via PIN pad navigation
      */
-    private suspend fun launchDisneyPlus(deepLinkUri: String) {
-        Log.i(TAG, "Disney+: Normal launch + profile select")
+    private suspend fun launchDisneyPlus(deepLinkUri: String, season: Int = 1, episode: Int = 1) {
+        val isSearchUrl = deepLinkUri.contains("/search")
 
-        // Always use normal launch — deep links are unreliable on Disney+ TV app
-        val launchIntent = packageManager.getLeanbackLaunchIntentForPackage("com.disney.disneyplus")
-            ?: packageManager.getLaunchIntentForPackage("com.disney.disneyplus")
-        if (launchIntent == null) {
-            Log.e(TAG, "Disney+: App not installed!")
-            return
-        }
-        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        startActivity(launchIntent)
+        if (isSearchUrl) {
+            // Mode A: Search-based launch (PIN bypassed by search URL)
+            val query = extractQuery(deepLinkUri)
+            Log.i(TAG, "Disney+: Search mode for '$query' → S${season}E${episode} (PIN bypassed via search URL)")
+            if (!sendDeepLink("com.disney.disneyplus", deepLinkUri, emptyMap())) return
 
-        // Wait for cold start (Disney+ is slow)
-        Log.i(TAG, "Disney+: Waiting 30s for cold start...")
-        delay(30000)
+            Log.i(TAG, "Disney+: Waiting 30s for cold start...")
+            delay(30000)
 
-        // Check if PIN screen is needed
-        val pin = getDisneyPin()
-        if (pin.isNotEmpty()) {
-            Log.i(TAG, "Disney+: Attempting PIN entry (PIN is configured)")
-            enterDisneyPinFromStartPosition(pin)
-            delay(5000)
-        } else {
-            // No PIN — single CENTER selects profile and triggers auto-play
-            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ profile select")
+            // FIX: Extra stabilization delay so the keyboard is fully ready before we start
+            // navigating. Without this, the first keypress can occasionally land while the
+            // keyboard animation is still playing, causing a stray character to be typed.
+            delay(800)
+
+            // Type the query on the native DPAD keyboard; returns final column position
+            val finalCol = typeOnDisneyKeyboard(query)
+            delay(2000)
+
+            // From the last typed letter, navigate RIGHT to exit keyboard and reach first result.
+            // Tested: from col=0 (e.g. after "moana"), RIGHT×7 = first result card.
+            // Formula: 7 - finalCol presses needed from any column.
+            val rightPresses = (7 - finalCol).coerceAtLeast(1)
+            repeat(rightPresses) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "D+ RIGHT"); delay(200) }
+
+            // Open show detail page
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ open show")
             delay(8000)
-        }
 
-        // MEDIA_PLAY to guarantee playback
-        sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "D+ force play")
-        delay(3000)
+            // Navigate to the specific season/episode then play
+            navigateToEpisode(season, episode, "D+")
+
+        } else {
+            // Mode B: Normal launch (no search URL)
+            Log.i(TAG, "Disney+: Normal launch + profile select")
+            val launchIntent = packageManager.getLeanbackLaunchIntentForPackage("com.disney.disneyplus")
+                ?: packageManager.getLaunchIntentForPackage("com.disney.disneyplus")
+            if (launchIntent == null) {
+                Log.e(TAG, "Disney+: App not installed!")
+                return
+            }
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(launchIntent)
+
+            Log.i(TAG, "Disney+: Waiting 30s for cold start...")
+            delay(30000)
+
+            val pin = getDisneyPin()
+            if (pin.isNotEmpty()) {
+                Log.i(TAG, "Disney+: Entering PIN (${pin.length} digits)")
+                enterDisneyPinFromStartPosition(pin)
+                delay(5000)
+            } else {
+                // Single CENTER: selects profile AND triggers auto-play
+                sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ profile select")
+                delay(8000)
+            }
+
+            sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "D+ force play")
+            delay(3000)
+        }
 
         Log.i(TAG, "Disney+: Done")
     }
@@ -359,6 +444,92 @@ class ContentLaunchService : Service() {
         delay(15000)
 
         Log.i(TAG, "Netflix: Done")
+    }
+
+    /**
+     * PARAMOUNT+ (CBS Interactive) — TESTED Feb 2026
+     *
+     * Recipe: Search URL → 20s → CENTER (profile) → 15s → sendInputText(query)
+     *         → 3s → RIGHT×6 → CENTER (show page) → episode navigation → CENTER (play)
+     *
+     * KEY FINDINGS from real TV testing:
+     * - Paramount+ is WebView-based: input text works perfectly
+     * - Search URL: https://www.paramountplus.com/search/?q=Blue+Bloods
+     * - After search URL opens, profile picker appears first → CENTER dismisses it
+     * - After profile, search results are already visible (query in URL pre-populates)
+     * - sendInputText() refines/confirms the search (types into the search box)
+     * - Use URL-encoded query with + for spaces (e.g. "Blue+Bloods")
+     * - RIGHT×6 navigates from search box to first result card
+     * - CENTER #1: opens show detail page; then navigateToEpisode() selects specific ep
+     */
+    private suspend fun launchParamountPlus(deepLinkUri: String, season: Int = 1, episode: Int = 1) {
+        val query = extractQuery(deepLinkUri)
+        Log.i(TAG, "Paramount+: Search for '$query' → S${season}E${episode}")
+
+        if (!sendDeepLink("com.cbs.ott", deepLinkUri, emptyMap())) return
+
+        Log.i(TAG, "Paramount+: Waiting 20s for cold start...")
+        delay(20000)
+
+        // Dismiss profile picker
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ profile select")
+        delay(15000)
+
+        // Type search query (WebView — input text works)
+        sendInputText(query)
+        delay(3000)
+
+        // Navigate from search bar to first result card
+        repeat(6) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "P+ RIGHT"); delay(200) }
+
+        // Open show detail page
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ open show")
+        delay(6000)
+
+        // Navigate to the specific season/episode then play
+        navigateToEpisode(season, episode, "P+")
+
+        Log.i(TAG, "Paramount+: Done")
+    }
+
+    /**
+     * PRIME VIDEO — TESTED Feb 2026
+     *
+     * Recipe: Search URL → 25s → RIGHT×6 → DOWN → CENTER (show page) → episode navigation → CENTER (play)
+     *
+     * KEY FINDINGS from real TV testing:
+     * - Search URL pre-populates results — NO TYPING NEEDED
+     * - URL: https://app.primevideo.com/search?phrase=The+Boys
+     * - No profile picker (unlike most other apps)
+     * - RIGHT×6 from search bar moves to first result card title
+     * - DOWN moves from result title to "Episode 1 Watch now" button
+     * - CENTER #1: opens show detail page; then navigateToEpisode() selects specific ep
+     */
+    private suspend fun launchPrimeVideo(deepLinkUri: String, season: Int = 1, episode: Int = 1) {
+        val query = extractQuery(deepLinkUri)
+        Log.i(TAG, "Prime Video: Search URL for '$query' → S${season}E${episode}")
+
+        if (!sendDeepLink("com.amazon.amazonvideo.livingroom", deepLinkUri, emptyMap())) return
+
+        // Prime Video loads results without typing — no profile picker
+        Log.i(TAG, "Prime Video: Waiting 25s (results pre-populated)...")
+        delay(25000)
+
+        // Navigate from search bar to first result card
+        repeat(6) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "PV RIGHT"); delay(200) }
+
+        // DOWN: move from result title to "Episode 1 Watch now" button
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV DOWN to Watch Now")
+        delay(500)
+
+        // Open show detail page
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PV open show")
+        delay(6000)
+
+        // Navigate to the specific season/episode then play
+        navigateToEpisode(season, episode, "PV")
+
+        Log.i(TAG, "Prime Video: Done")
     }
 
     /**
@@ -503,28 +674,236 @@ class ContentLaunchService : Service() {
     }
 
     // =========================================================================
+    //  SEARCH HELPERS
+    // =========================================================================
+
+    /**
+     * Extract a human-readable search query from a deep link search URL.
+     * Handles both ?q= (HBO Max, Disney+, Paramount+) and ?phrase= (Prime Video).
+     * Decodes URL encoding: "Blue+Bloods" → "Blue Bloods", "blue%20bloods" → "blue bloods"
+     */
+    private fun extractQuery(deepLinkUri: String): String {
+        return try {
+            val uri = Uri.parse(deepLinkUri)
+            val raw = uri.getQueryParameter("q")
+                ?: uri.getQueryParameter("phrase")
+                ?: ""
+            raw.replace("+", " ").replace("%20", " ").trim()
+        } catch (e: Exception) {
+            Log.w(TAG, "extractQuery failed for $deepLinkUri: ${e.message}")
+            ""
+        }
+    }
+
+    /**
+     * Send text input word-by-word via ADB shell input text.
+     *
+     * WHY WORD-BY-WORD: Passing a full string with spaces to `input text` causes
+     * the shell to split on spaces and only type the first word.
+     * Solution: send each word separately with KEYCODE_SPACE between them.
+     *
+     * Works on WebView-based apps (HBO Max, Paramount+).
+     * Does NOT work on native keyboard apps (Disney+, Hulu) — use typeOnDisneyKeyboard instead.
+     */
+    private suspend fun sendInputText(text: String) {
+        val words = text.trim().split(" ", "%20").filter { it.isNotBlank() }
+        for ((i, word) in words.withIndex()) {
+            sendShell("input text $word")
+            delay(300)
+            if (i < words.size - 1) {
+                sendKey(KeyEvent.KEYCODE_SPACE, "SPACE between words")
+                delay(200)
+            }
+        }
+    }
+
+    /**
+     * Type a search query on the Disney+ native TV keyboard using DPAD navigation.
+     *
+     * KEYBOARD LAYOUT (mapped via UIAutomator dump, Feb 2026):
+     *   Row 0: a b c d e f g
+     *   Row 1: h i j k l m n
+     *   Row 2: o p q r s t u
+     *   Row 3: v w x y z 1 2
+     *   Row 4: 3 4 5 6 7 8 9
+     *   Row 5: 0 (col 0)
+     *   (Space and Delete buttons are above the letter grid)
+     *
+     * INITIAL STATE: Focus always starts on 'a' (row=0, col=0) when search page opens.
+     * NAVIGATION: Move DPAD to target letter, press CENTER to type it.
+     * SPACES: Skipped — Disney+ fuzzy search handles multi-word queries fine.
+     *
+     * Returns the final column position so the caller can calculate how many
+     * RIGHT presses are needed to exit the keyboard and reach the first result.
+     */
+    private suspend fun typeOnDisneyKeyboard(query: String): Int {
+        // Map each character to its (row, col) in the 7-column grid
+        // "abcdefghijklmnopqrstuvwxyz1234567890": index/7 = row, index%7 = col
+        val ordered = "abcdefghijklmnopqrstuvwxyz1234567890"
+        val charPos = ordered.mapIndexed { idx, c -> c to Pair(idx / 7, idx % 7) }.toMap()
+
+        var curRow = 0  // Start at 'a'
+        var curCol = 0
+
+        for (ch in query.lowercase()) {
+            if (ch == ' ') continue  // Skip spaces — fuzzy search handles them
+
+            val (targetRow, targetCol) = charPos[ch] ?: run {
+                Log.w(TAG, "Disney+ keyboard: unknown char '$ch', skipping")
+                continue
+            }
+
+            val rowDiff = targetRow - curRow
+            val colDiff = targetCol - curCol
+
+            // Navigate rows
+            if (rowDiff > 0) repeat(rowDiff)  { sendKey(KeyEvent.KEYCODE_DPAD_DOWN,  "D+ kbd ↓"); delay(150) }
+            else             repeat(-rowDiff) { sendKey(KeyEvent.KEYCODE_DPAD_UP,    "D+ kbd ↑"); delay(150) }
+
+            // Navigate columns
+            if (colDiff > 0) repeat(colDiff)  { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "D+ kbd →"); delay(150) }
+            else             repeat(-colDiff) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT,  "D+ kbd ←"); delay(150) }
+
+            // Select the letter
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ kbd '$ch'")
+            delay(200)
+
+            curRow = targetRow
+            curCol = targetCol
+        }
+
+        Log.i(TAG, "Disney+ keyboard: typed '${query.lowercase().replace(" ", "")}', ended at col=$curCol")
+        return curCol  // Caller uses this to calculate RIGHT presses to reach first result
+    }
+
+    // =========================================================================
+    //  EPISODE NAVIGATION (shared helper for all show-based apps)
+    // =========================================================================
+
+    /**
+     * Navigate a streaming app's show detail page to a specific season and episode.
+     *
+     * CALL AFTER the show detail page is open and the page has had time to load (5-8s delay).
+     *
+     * LAYOUT assumed (common to HBO Max, Disney+, Paramount+, Prime Video, Hulu TV apps):
+     *
+     *   [▶ Play / Continue Watching]   ← initial focus after opening show
+     *   [Season 1] [Season 2] [...]    ← season selector row (1 DOWN from play button)
+     *   [Ep1 card] [Ep2 card] [...]   ← episode list (1 DOWN from season row)
+     *
+     * STRATEGY:
+     *   S1E1  → just CENTER (focus is already on Play S1E1 or first episode card)
+     *   S1EN  → DOWN×2 to reach episode list, RIGHT×(N-1) to episode N, CENTER
+     *   SMEN  → DOWN×1 to season row, RIGHT×(M-1) to season M, CENTER, wait 2s,
+     *           DOWN×1 to episode list, RIGHT×(N-1) to episode N, CENTER
+     *
+     * NOTE: The exact number of DOWN presses can vary slightly between apps and UI versions.
+     * If an app needs a different count, override in the app-specific method.
+     * appTag is used for log messages (e.g., "HBO", "D+", "P+", "PV", "Hulu").
+     */
+    private suspend fun navigateToEpisode(season: Int, episode: Int, appTag: String) {
+        Log.i(TAG, "$appTag: navigate to S${season}E${episode}")
+
+        if (season == 1 && episode == 1) {
+            // Default case: focus is already on Play S1E1 — just play it
+            Log.i(TAG, "$appTag: S1E1 — playing default (no navigation needed)")
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "$appTag play S1E1")
+            delay(3000)
+            return
+        }
+
+        if (season > 1) {
+            // Navigate DOWN 1 to reach season selector row
+            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "$appTag → season row")
+            delay(400)
+
+            // Navigate RIGHT to the target season (season N = RIGHT×(N-1) from Season 1)
+            repeat(season - 1) {
+                sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "$appTag → S$season")
+                delay(250)
+            }
+
+            // Select the season and wait for the episode list to refresh
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "$appTag select S$season")
+            delay(2000)
+
+            // Navigate DOWN 1 to reach the episode list
+            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "$appTag → episode list")
+            delay(400)
+        } else {
+            // Season 1: navigate DOWN×2 to skip play button + season row → reach episode list
+            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "$appTag → past play btn")
+            delay(350)
+            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "$appTag → S1 episode list")
+            delay(400)
+        }
+
+        // Navigate RIGHT to the target episode (episode N = RIGHT×(N-1) from Ep1)
+        if (episode > 1) {
+            repeat(episode - 1) {
+                sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "$appTag → E$episode")
+                delay(250)
+            }
+        }
+
+        // Play the selected episode
+        Log.i(TAG, "$appTag: pressing play on S${season}E${episode}")
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "$appTag play S${season}E${episode}")
+        delay(3000)
+    }
+
+    // =========================================================================
     //  VOLUME CONTROL
     // =========================================================================
 
     /**
      * Set the TV volume to a specific level (0-100).
-     * Uses AudioManager for the device's own volume, which controls HDMI-CEC
-     * volume on most Android TV devices.
+     *
+     * TWO-STEP APPROACH:
+     * 1. AudioManager.setStreamVolume() — sets the Android box's own audio level immediately.
+     *    This is instant and works even before any app is open.
+     *
+     * 2. ADB KEYCODE_VOLUME_DOWN×15 then KEYCODE_VOLUME_UP×N — sends CEC volume key events
+     *    that travel through HDMI to the physical TV/soundbar. We first press down to a
+     *    known-low floor, then press up to reach the target level.
+     *    This handles TVs where HDMI-CEC volume is separate from the box's own volume.
+     *
+     * NOTE: STREAM_MUSIC is the correct stream for TV output on Onn Google TV (not
+     * STREAM_ACCESSIBILITY or STREAM_SYSTEM). MODIFY_AUDIO_SETTINGS is not required
+     * for setStreamVolume on STREAM_MUSIC when called from a foreground service.
      */
-    private fun setTvVolume(targetVolume: Int) {
+    private suspend fun setTvVolume(targetVolume: Int) {
+        // Step 1: Set AudioManager stream volume (box audio — immediate)
         try {
             val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
             val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
             val scaledVolume = (targetVolume * maxVolume / 100).coerceIn(0, maxVolume)
-
-            audioManager.setStreamVolume(
-                AudioManager.STREAM_MUSIC,
-                scaledVolume,
-                0 // No UI flag — don't show volume bar on screen
-            )
-            Log.i(TAG, "Volume set to $targetVolume% (device level: $scaledVolume/$maxVolume)")
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, scaledVolume, 0)
+            Log.i(TAG, "Volume (AudioManager): $targetVolume% → $scaledVolume/$maxVolume")
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to set volume: ${e.message}")
+            Log.w(TAG, "AudioManager volume failed: ${e.message}")
+        }
+
+        // Step 2: Send CEC volume key events for the physical TV/soundbar.
+        // Press DOWN×15 to get to a known-low level, then UP×N to reach target.
+        // 15 down steps = ~0% on most TVs; target steps = targetVolume/7 (rough mapping
+        // since CEC step size varies by TV, but ~7% per step is typical).
+        try {
+            val downSteps = 15
+            val upSteps = (targetVolume / 7).coerceIn(0, 20)
+            Log.i(TAG, "Volume (CEC): pressing DOWN×$downSteps then UP×$upSteps")
+
+            repeat(downSteps) {
+                sendShell("input keyevent ${KeyEvent.KEYCODE_VOLUME_DOWN}")
+                delay(80)
+            }
+            delay(300)
+            repeat(upSteps) {
+                sendShell("input keyevent ${KeyEvent.KEYCODE_VOLUME_UP}")
+                delay(80)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "CEC volume key events failed: ${e.message}")
         }
     }
 
