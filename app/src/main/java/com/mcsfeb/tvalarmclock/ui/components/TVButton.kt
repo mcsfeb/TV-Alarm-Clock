@@ -31,7 +31,8 @@ fun TVButton(
     color: Color,
     onClick: () -> Unit,
     compact: Boolean = false,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier
 ) {
     Button(
         onClick = onClick,
@@ -66,7 +67,7 @@ fun TVButton(
         scale = ButtonDefaults.scale(
             focusedScale = 1.08f
         ),
-        modifier = if (compact) Modifier.height(44.dp) else Modifier.height(52.dp)
+        modifier = if (compact) modifier.height(44.dp) else modifier.height(52.dp)
     ) {
         Text(
             text = text,

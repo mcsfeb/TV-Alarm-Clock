@@ -88,15 +88,19 @@ class ContentLaunchService : Service() {
         }
         val volume = intent.getIntExtra("VOLUME", -1)
 
-        // Collect extras
+        // Collect extras (EXTRA_season, EXTRA_episode, etc. passed from AlarmActivity)
         val extras = mutableMapOf<String, String>()
         intent.extras?.let { bundle ->
+            Log.d(TAG, "onStartCommand bundle keys: ${bundle.keySet()}")
             for (key in bundle.keySet()) {
                 if (key.startsWith("EXTRA_")) {
-                    extras[key.removePrefix("EXTRA_")] = bundle.getString(key, "")
+                    val value = bundle.getString(key) ?: bundle.get(key)?.toString() ?: ""
+                    Log.d(TAG, "  EXTRA key: $key = '$value'")
+                    extras[key.removePrefix("EXTRA_")] = value
                 }
             }
         }
+        Log.d(TAG, "Parsed extras map: $extras")
 
         serviceScope.launch {
             performLaunch(packageName, deepLinkUri, extras, volume)
@@ -215,14 +219,15 @@ class ContentLaunchService : Service() {
     }
 
     /**
-     * HBO MAX (Max) — TESTED Feb 2026 (3/3 pass)
+     * HBO MAX (Max) — TESTED Feb 2026
      *
      * Three modes:
      * A) Search URL: https://play.max.com/search?q=Friends
-     *    → deep link → 15s → CENTER (profile) → 15s → sendInputText(query) → 3s
-     *    → RIGHT×6 → CENTER (show page) → episode navigation → CENTER (play)
-     *    - Max is WebView-based: input text works perfectly
-     *    - Search results pre-show query; typing refines it
+     *    → deep link → 25s → CENTER (profile) → 15s → sendInputText(query) → 3s
+     *    → RIGHT×6 → CENTER (show page) → 8s → episode navigation → CENTER (play)
+     *    - Max is WebView-based: sendInputText works perfectly (unlike Disney+'s native kbd)
+     *    - After profile dismiss, focus is on the search bar — type to confirm the query
+     *    - RIGHT×6 navigates from search bar to the first result card
      *
      * B) Content deep link (UUID format): https://play.max.com/video/watch/{uuid1}/{uuid2}
      *    → deep link → 25s → CENTER (profile) → 8s → MEDIA_PLAY
@@ -237,19 +242,23 @@ class ContentLaunchService : Service() {
 
         when {
             isSearchUrl -> {
-                // Mode A: Search-based launch (tested: Friends, Blue Bloods-style shows)
+                // Mode A: Search-based launch
                 //
-                // HOW IT WORKS (confirmed via real TV testing session 2):
-                //   1. Search URL pre-populates HBO Max search results with the show name.
-                //   2. After cold start (25s), profile picker is showing → CENTER dismisses it.
-                //   3. After profile dismiss (8s), search results are visible and
-                //      FOCUS IS ALREADY ON THE FIRST RESULT CARD (the show we searched for).
-                //   4. CENTER opens the show detail page (not MEDIA_PLAY, which would
-                //      play immediately without episode selection).
-                //   5. navigateToEpisode() selects the correct season/episode.
+                // FLOW:
+                //   1. Search URL → HBO Max opens to search page (WebView)
+                //   2. 25s cold start wait
+                //   3. CENTER → dismisses profile picker
+                //   4. 15s wait for search page to settle
+                //   5. sendInputText(query) → types query into search bar (WebView input)
+                //   6. 3s wait for search results to populate
+                //   7. RIGHT×6 → navigates from search bar to first result card
+                //   8. CENTER → opens show detail page
+                //   9. 8s wait for show page to load
+                //  10. navigateToEpisode() → selects season/episode and plays
                 //
-                // NOTE: No typing needed — the search URL already pre-populates the query.
-                //       No RIGHT×N needed — focus lands on the show card after profile.
+                // WHY WE TYPE: Even though the URL pre-populates, focus after profile dismiss
+                // lands on the search bar input. Typing the query ensures the right results
+                // appear. sendInputText works because Max uses a WebView keyboard.
                 val query = extractQuery(deepLinkUri)
                 Log.i(TAG, "HBO Max: Search mode for '$query' → target S${season}E${episode}")
                 if (!sendDeepLink("com.wbd.stream", deepLinkUri, emptyMap())) return
@@ -258,13 +267,20 @@ class ContentLaunchService : Service() {
                 Log.i(TAG, "HBO Max: Waiting 25s for cold start...")
                 delay(25000)
 
-                // Profile select — focus now lands on the first search result (the show)
-                sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO profile select")
-                delay(8000)
+                // Dismiss profile picker
+                sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO profile dismiss")
+                delay(15000)
 
-                // Open show detail page (focus is on the show card from the search URL)
+                // Type the query into the search bar (WebView — sendInputText works)
+                sendInputText(query)
+                delay(3000)
+
+                // Navigate from search bar to first result card (6 RIGHT presses)
+                repeat(6) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "HBO RIGHT"); delay(200) }
+
+                // Open show detail page
                 sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO open show")
-                delay(6000)
+                delay(8000)
 
                 // Navigate to the specific season/episode then play
                 navigateToEpisode(season, episode, "HBO")
@@ -354,12 +370,18 @@ class ContentLaunchService : Service() {
      *
      * Two modes:
      * A) Search URL: https://www.disneyplus.com/search?q=Moana
-     *    → search URL deeplink (BYPASSES PIN screen!) → 30s → typeOnDisneyKeyboard(query)
-     *    → 2s → RIGHT×(7-lastCol) → CENTER (show page) → 8s → episode navigation → CENTER (play)
-     *    - Native keyboard: input text DOES NOT WORK; must use DPAD grid navigation
-     *    - Keyboard layout: 7 cols × 6 rows, always starts focused on 'a' (row=0,col=0)
-     *    - Search URL bypass is critical — avoids PIN entirely
-     *    - FIX: 500ms stabilization delay before typing prevents stray 'a' key
+     *    → search URL deeplink (BYPASSES PIN screen!) → 30s → stabilize 800ms
+     *    → typeOnDisneyKeyboard(query) → 2s → RIGHT×(7-lastCol) → CENTER (show page)
+     *    → 8s → episode navigation → CENTER (play)
+     *
+     *    WHY KEYBOARD TYPING: Disney+ uses a native DPAD keyboard (not WebView).
+     *    The search URL sends focus to the keyboard but the query is NOT pre-filled —
+     *    the keyboard is blank. We must type every character via DPAD navigation.
+     *    This is the CONFIRMED WORKING approach. Do not replace with CENTER-only.
+     *    - Native keyboard: sendInputText does NOT work; must use DPAD grid navigation
+     *    - Keyboard layout: 7 cols × 6 rows, always starts focused on 'a' (row=0, col=0)
+     *    - Search URL bypass is critical — avoids the PIN screen entirely
+     *    - 800ms stabilization delay before typing prevents stray first character
      *
      * B) Normal launch (APP_ONLY or blank deep link):
      *    → normal launch → 30s → profile CENTER → MEDIA_PLAY
@@ -369,7 +391,18 @@ class ContentLaunchService : Service() {
         val isSearchUrl = deepLinkUri.contains("/search")
 
         if (isSearchUrl) {
-            // Mode A: Search-based launch (PIN bypassed by search URL)
+            // Mode A: Search-based launch — CONFIRMED WORKING. Keyboard typing is required.
+            //
+            // FLOW:
+            //   1. Search URL sent → Disney+ opens to search screen (bypasses PIN!)
+            //   2. 30s cold start wait (Disney+ is a heavy app)
+            //   3. 800ms stabilization so keyboard animation finishes before we type
+            //   4. typeOnDisneyKeyboard(query) — DPAD-navigates to each letter and presses CENTER
+            //   5. 2s wait for search results to populate
+            //   6. RIGHT×(7-lastCol) — exits the keyboard grid and lands on first result card
+            //   7. CENTER — opens show detail page
+            //   8. 8s wait for show page to load
+            //   9. navigateToEpisode() — selects the specific season/episode and plays
             val query = extractQuery(deepLinkUri)
             Log.i(TAG, "Disney+: Search mode for '$query' → S${season}E${episode} (PIN bypassed via search URL)")
             if (!sendDeepLink("com.disney.disneyplus", deepLinkUri, emptyMap())) return
@@ -377,18 +410,15 @@ class ContentLaunchService : Service() {
             Log.i(TAG, "Disney+: Waiting 30s for cold start...")
             delay(30000)
 
-            // FIX: Extra stabilization delay so the keyboard is fully ready before we start
-            // navigating. Without this, the first keypress can occasionally land while the
-            // keyboard animation is still playing, causing a stray character to be typed.
+            // Stabilization delay so the keyboard is fully ready before we navigate
             delay(800)
 
             // Type the query on the native DPAD keyboard; returns final column position
             val finalCol = typeOnDisneyKeyboard(query)
             delay(2000)
 
-            // From the last typed letter, navigate RIGHT to exit keyboard and reach first result.
-            // Tested: from col=0 (e.g. after "moana"), RIGHT×7 = first result card.
-            // Formula: 7 - finalCol presses needed from any column.
+            // Navigate RIGHT from the last typed letter to exit the keyboard grid and
+            // land on the first search result. Formula: 7 - finalCol RIGHT presses.
             val rightPresses = (7 - finalCol).coerceAtLeast(1)
             repeat(rightPresses) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "D+ RIGHT"); delay(200) }
 

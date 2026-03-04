@@ -5,12 +5,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -45,9 +45,18 @@ fun AlarmSetupScreen(
     var minute by remember { mutableIntStateOf(editingMinute ?: 0) }
     var timeSet by remember { mutableStateOf(editingHour != null) }
 
-    // Volume: -1 = don't change, 0-100 = set to this level
+    // Volume: -1 = don't change, 0-100 = specific level
     var volumeEnabled by remember { mutableStateOf(editingVolume >= 0) }
-    var volumeLevel by remember { mutableFloatStateOf(if (editingVolume >= 0) editingVolume.toFloat() else 30f) }
+    var volumeLevel by remember { mutableIntStateOf(if (editingVolume >= 0) editingVolume else 30) }
+
+    // Focus management: move focus to Save button after picking content
+    val saveFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        if (selectedContent != null) {
+            kotlinx.coroutines.delay(400)
+            try { saveFocusRequester.requestFocus() } catch (_: Exception) { }
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -152,25 +161,48 @@ fun AlarmSetupScreen(
                         if (volumeEnabled) {
                             Spacer(modifier = Modifier.width(12.dp))
 
-                            Column(modifier = Modifier.weight(1f)) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                // Show the exact volume value
                                 Text(
-                                    text = "${volumeLevel.toInt()}%",
-                                    fontSize = 18.sp,
+                                    text = "$volumeLevel",
+                                    fontSize = 32.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = AlarmActiveGreen,
-                                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                                    color = AlarmActiveGreen
                                 )
-                                Slider(
-                                    value = volumeLevel,
-                                    onValueChange = { volumeLevel = it },
-                                    valueRange = 0f..100f,
-                                    steps = 9, // 0, 10, 20, ..., 100
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = AlarmActiveGreen,
-                                        activeTrackColor = AlarmActiveGreen,
-                                        inactiveTrackColor = DarkSurfaceVariant
+                                Spacer(modifier = Modifier.height(4.dp))
+                                // Fine and coarse adjustment buttons
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    TVButton(
+                                        text = "−10",
+                                        color = TextSecondary,
+                                        compact = true,
+                                        onClick = { volumeLevel = (volumeLevel - 10).coerceAtLeast(0) }
                                     )
-                                )
+                                    TVButton(
+                                        text = "−1",
+                                        color = TextSecondary,
+                                        compact = true,
+                                        onClick = { volumeLevel = (volumeLevel - 1).coerceAtLeast(0) }
+                                    )
+                                    TVButton(
+                                        text = "+1",
+                                        color = AlarmActiveGreen,
+                                        compact = true,
+                                        onClick = { volumeLevel = (volumeLevel + 1).coerceAtMost(100) }
+                                    )
+                                    TVButton(
+                                        text = "+10",
+                                        color = AlarmActiveGreen,
+                                        compact = true,
+                                        onClick = { volumeLevel = (volumeLevel + 10).coerceAtMost(100) }
+                                    )
+                                }
                             }
                         } else {
                             Spacer(modifier = Modifier.width(12.dp))
@@ -284,14 +316,15 @@ fun AlarmSetupScreen(
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Save button at the bottom
+            // Save button at the bottom — focus jumps here after content is picked
             TVButton(
                 text = if (editingHour != null) "Save Changes" else "Create Alarm",
                 color = if (timeSet) AlarmActiveGreen else TextSecondary,
                 enabled = timeSet,
+                modifier = Modifier.focusRequester(saveFocusRequester),
                 onClick = {
                     if (timeSet) {
-                        val vol = if (volumeEnabled) volumeLevel.toInt() else -1
+                        val vol = if (volumeEnabled) volumeLevel else -1
                         onSave(hour, minute, vol, selectedContent)
                     }
                 }

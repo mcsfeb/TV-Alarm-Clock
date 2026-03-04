@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.*
 import com.mcsfeb.tvalarmclock.data.config.DeepLinkConfig
@@ -69,6 +70,18 @@ class MainActivity : ComponentActivity() {
                 var setupContent by remember { mutableStateOf<StreamingContent?>(null) }
 
                 val installedApps = remember { contentLauncher.getInstalledApps() }
+
+                // BACK key: navigate one screen back instead of exiting the app
+                BackHandler(enabled = currentScreen != "home") {
+                    when (currentScreen) {
+                        "content_picker" -> currentScreen = "alarm_setup"
+                        "alarm_setup" -> {
+                            editingAlarmId = -1
+                            currentScreen = "home"
+                        }
+                        else -> currentScreen = "home"
+                    }
+                }
 
                 when (currentScreen) {
                     "home" -> {
