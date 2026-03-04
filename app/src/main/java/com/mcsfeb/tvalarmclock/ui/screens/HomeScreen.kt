@@ -12,6 +12,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -38,6 +40,17 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val isA11yEnabled = ProfileAutoSelector.isServiceEnabled()
+
+    // FocusRequester for the alarm list.
+    // LaunchedEffect fires whenever alarms.size changes (e.g. user just saved a new alarm
+    // and returned here). Without this, focusRestorer() can't restore focus to a LazyColumn
+    // that was never previously focused — DPAD would go to the top of the screen instead.
+    val listFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(alarms.size) {
+        if (alarms.isNotEmpty()) {
+            try { listFocusRequester.requestFocus() } catch (_: Exception) { /* not attached yet */ }
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -131,6 +144,7 @@ fun HomeScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier
                             .weight(1f)
+                            .focusRequester(listFocusRequester)
                             .focusRestorer()
                     ) {
                         items(alarms) { alarm ->

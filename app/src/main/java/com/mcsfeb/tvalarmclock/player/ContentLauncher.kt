@@ -64,9 +64,13 @@ class ContentLauncher(private val context: Context) {
         Log.i(TAG, "launchContent: $packageName, type=$contentType, ids=$identifiers, volume=$volume")
 
         // Apps that should ALWAYS use normal launch (deep links broken/unreliable):
-        // - Sling: deep links break the player on cold start
-        // - Disney+: deep links don't navigate to content on TV app
-        val alwaysNormalLaunch = setOf("com.sling", "com.disney.disneyplus")
+        // - Sling: deep links break the player on cold start (player gets stuck).
+        //   ContentLaunchService.launchSling() handles this with a normal launch recipe.
+        //
+        // NOTE: Disney+ was previously in this set, but SEARCH mode for Disney+ is now
+        // handled in AlarmReceiver (it never reaches ContentLauncher). DEEP_LINK mode
+        // Disney+ alarms (manually-entered content IDs) are allowed to attempt deep links.
+        val alwaysNormalLaunch = setOf("com.sling")
 
         if (packageName in alwaysNormalLaunch) {
             Log.i(TAG, "$packageName: Using normal launch (deep links unreliable)")
@@ -74,8 +78,9 @@ class ContentLauncher(private val context: Context) {
             return
         }
 
-        // HBO Max: Only use deep link if content ID looks like a UUID
-        // Old urn:hbo format and non-UUID IDs show "item not found"
+        // HBO Max: Only use deep link if content ID looks like a UUID.
+        // Old urn:hbo format and non-UUID IDs show "item not found" error.
+        // SEARCH mode HBO Max alarms never reach here (handled in AlarmReceiver).
         if (packageName == "com.wbd.stream") {
             val contentId = identifiers["id"] ?: ""
             val isUuid = contentId.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", RegexOption.IGNORE_CASE))

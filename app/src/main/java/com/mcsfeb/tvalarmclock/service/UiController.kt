@@ -1,3 +1,4 @@
+@file:Suppress("DEPRECATION")  // AccessibilityNodeInfo.recycle() deprecated in API 33, safe to suppress
 package com.mcsfeb.tvalarmclock.service
 
 import android.accessibilityservice.AccessibilityService

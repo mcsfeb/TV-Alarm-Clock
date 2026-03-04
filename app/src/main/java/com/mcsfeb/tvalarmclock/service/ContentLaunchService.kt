@@ -238,25 +238,31 @@ class ContentLaunchService : Service() {
         when {
             isSearchUrl -> {
                 // Mode A: Search-based launch (tested: Friends, Blue Bloods-style shows)
+                //
+                // HOW IT WORKS (confirmed via real TV testing session 2):
+                //   1. Search URL pre-populates HBO Max search results with the show name.
+                //   2. After cold start (25s), profile picker is showing → CENTER dismisses it.
+                //   3. After profile dismiss (8s), search results are visible and
+                //      FOCUS IS ALREADY ON THE FIRST RESULT CARD (the show we searched for).
+                //   4. CENTER opens the show detail page (not MEDIA_PLAY, which would
+                //      play immediately without episode selection).
+                //   5. navigateToEpisode() selects the correct season/episode.
+                //
+                // NOTE: No typing needed — the search URL already pre-populates the query.
+                //       No RIGHT×N needed — focus lands on the show card after profile.
                 val query = extractQuery(deepLinkUri)
                 Log.i(TAG, "HBO Max: Search mode for '$query' → target S${season}E${episode}")
                 if (!sendDeepLink("com.wbd.stream", deepLinkUri, emptyMap())) return
 
-                Log.i(TAG, "HBO Max: Waiting 15s (WebView cold start)...")
-                delay(15000)
+                // Wait for HBO Max cold start — WebView-based, needs full 25s
+                Log.i(TAG, "HBO Max: Waiting 25s for cold start...")
+                delay(25000)
 
-                // Profile select
+                // Profile select — focus now lands on the first search result (the show)
                 sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO profile select")
-                delay(15000)
+                delay(8000)
 
-                // Type search query (WebView keyboard — input text works)
-                sendInputText(query)
-                delay(3000)
-
-                // Navigate from search bar to first result card
-                repeat(6) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "HBO RIGHT"); delay(200) }
-
-                // Open show detail page
+                // Open show detail page (focus is on the show card from the search URL)
                 sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO open show")
                 delay(6000)
 
