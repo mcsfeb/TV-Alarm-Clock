@@ -1,142 +1,186 @@
 # TV Alarm Clock - Implementation Plan
 
-## Three Features to Build
+---
 
-### 1. Wake-on-Alarm (Turn on TV from standby)
-### 2. Modularize the Project (Separate files for Clock UI, Alarm Logic, TV Intent handlers)
-### 3. Better Deep Link Discovery (Find deep links automatically so launches work flawlessly)
+## ⚠️ CORE PHILOSOPHY — READ THIS FIRST
+
+**ALWAYS use SEARCH + DPAD keyboard navigation. NEVER use deep links for content.**
+
+- Deep links are brittle, break on app updates, and cause unpredictable behavior (wrong season, pause/unpause glitches, landing on wrong screen).
+- The DPAD/keyboard search method is slower to build but works reliably once tuned.
+- **When it doesn't work: fix and improve the DPAD method. Do NOT switch to deep links.**
+- Only exception: **Live TV channels** — even then, prefer navigating via the in-app guide/EPG, not a deep link URI.
+- If search/keyboard ever gets stuck on a specific app, the answer is more tuning (better delays, different key sequence) not switching methods.
 
 ---
 
-## Feature 1: Wake-on-Alarm
+## Per-App Status (Last tested: Feb 2026, Onn Google TV)
 
-**What we already have (it's mostly done!):**
-- `AlarmReceiver.kt` already grabs a `FULL_WAKE_LOCK` with `ACQUIRE_CAUSES_WAKEUP` - this turns the screen on
-- `AlarmActivity.kt` already sets `FLAG_KEEP_SCREEN_ON`, `setShowWhenLocked(true)`, `setTurnScreenOn(true)`
-- `AlarmScheduler.kt` uses `setAlarmClock()` which wakes from Doze mode
-- Android TV OS automatically sends HDMI-CEC "One Touch Play" when the device wakes up, which turns on the physical TV
+### SLING TV (`com.sling`) — Partial ✅/⚠️
+| What | Status | Notes |
+|------|--------|-------|
+| App launch | ✅ Works | Normal launch (no deep links) |
+| Profile bypass | ✅ Works | Single CENTER dismisses picker |
+| Live channel (Fox News) | ✅ Works | Deep link launched OK |
+| Pause/unpause glitch | ⚠️ Bug | Extra pause/unpause after deep link launch. CENTER is toggling play/pause. Fix: remove extra CENTER, keep only MEDIA_PLAY |
+| Search for show | ❌ Not built | Need to build search → show → episode navigation |
+| Episode selection | ❌ Not built | Need to build after search works |
+| **Next action** | Build DPAD search flow, fix pause glitch |
 
-**What needs improvement:**
-- `BootReceiver.kt` is a **placeholder** - alarms are lost after reboot! Need to make it actually reload and reschedule alarms
-- Add a `SCHEDULE_EXACT_ALARM` permission for Android 12+ devices that need it
-- Add `FOREGROUND_SERVICE` for Android 14+ requirements (some devices need a foreground service to reliably wake)
+### HULU (`com.hulu.livingroomplus`) — Mostly broken ❌
+| What | Status | Notes |
+|------|--------|-------|
+| App launch | ✅ Works | |
+| Profile bypass | ✅ Works | |
+| Search for show | ❌ Not attempted | Code never sends search keys |
+| Episode selection | ❌ Not built | |
+| **Next action** | Build full search + DPAD episode selection |
 
-**Plan:**
-1. **Fix BootReceiver** - Read alarms from SharedPreferences and reschedule them all
-2. **Add WakeUpHelper utility** - Centralize all wake-up logic (WakeLock + screen on + keep awake) into one file instead of splitting it across AlarmReceiver and AlarmActivity
-3. **Add permission check** - Check if `SCHEDULE_EXACT_ALARM` is needed on Android 12+ and guide user to grant it
+### HBO MAX / MAX (`com.wbd.stream`) — Partial ✅/⚠️
+| What | Status | Notes |
+|------|--------|-------|
+| App launch | ✅ Works | |
+| Profile bypass | ✅ Works | |
+| Search | ✅ Works | Searched "Friends" correctly |
+| Season navigation | ⚠️ Wrong season | Landed on Season 10 instead of chosen season |
+| Episode selection | ❌ Not built | Stopped at show page, no episode picked |
+| UI visibility | ⚠️ Opaque | WebView-based, no accessibility tree. Must use timed DPAD. |
+| **Next action** | Fix season navigation (go to correct season #), build episode selection |
+
+### DISNEY+ (`com.disney.disneyplus`) — Partial ✅/⚠️
+| What | Status | Notes |
+|------|--------|-------|
+| App launch | ✅ Works | |
+| Profile bypass | ✅ Works | |
+| Search | ✅ Works great | Best searcher of all apps |
+| Episode selection | ❌ Not built | Shows "Continue Watching", doesn't navigate to chosen episode |
+| **Next action** | After search lands on show page, build DPAD nav to correct season + episode |
+
+### PARAMOUNT+ (`com.cbs.ott`) — Partial ✅/⚠️
+| What | Status | Notes |
+|------|--------|-------|
+| App launch | ✅ Works | |
+| Profile bypass | ✅ Works | |
+| Search opens | ✅ Works | |
+| Extra "A" typed first | ⚠️ Bug | Types letter "A" before actual search term. Extra click before search field is ready. |
+| Show selected | ✅ Works | Correct show selected |
+| Season/episode nav | ❌ Not built | Scrolled to wrong show in suggestions instead of entering episodes |
+| **Next action** | Fix "A" prefix bug, build episode navigation after show selected |
+
+### PRIME VIDEO (`com.amazon.amazonvideo.livingroom`) — Partial ✅/⚠️
+| What | Status | Notes |
+|------|--------|-------|
+| App launch | ✅ Works | |
+| Search (Monk) | ✅ Works | Found show correctly |
+| Season selection | ⚠️ Fails | Tried to navigate to season but didn't actually select it |
+| Episode selection | ❌ Not built | Never reached episode |
+| **Next action** | Fix season selection DPAD nav, build episode selection |
+
+### NETFLIX (`com.netflix.ninja`) — Deep link only, untested with search
+| **Next action** | Build search flow (currently only deep link) |
+
+### YOUTUBE TV (`com.google.android.youtube.tv`) — Not tested
+| **Next action** | Build search flow |
 
 ---
 
-## Feature 2: Modularize the Project
+## Active Bug List (Fix in This Order)
 
-**Current problem - some files do too much:**
-- `MainActivity.kt` (227 lines) - Navigation, alarm CRUD, scheduling, content saving, SharedPreferences - all in one file
-- `HomeScreen.kt` (561 lines) - Clock UI, time picker, alarm list, alarm card, TVButton, and helper functions all together
-- `ContentPickerScreen.kt` (909 lines) - Biggest file! App picker, channel guide, search, season/episode picker, manual entry all in one
+### Bug 1: Sling Pause/Unpause Glitch (only on deep link path)
+- **Root cause:** DPAD_CENTER is sent after loading which toggles play/pause. If Sling starts playing automatically, one CENTER = pause. Then MEDIA_PLAY = play. Net result: pause then unpause = glitch.
+- **Fix:** In `launchSling()` — remove CENTER entirely if channel is already playing. Only send MEDIA_PLAY at the end. CENTER is only needed for profile picker on cold start.
+- **File:** `ContentLaunchService.kt` → `launchSling()`
 
-**Files that are already well-organized:**
-- `StreamingLauncher.kt` - Just does launching (good)
-- `AlarmScheduler.kt` - Just does scheduling (good)
-- `AlarmReceiver.kt` - Just receives alarms (good)
-- `StreamingApp.kt` - Just data definitions (good)
-- `ProfileAutoSelector.kt` - Just auto-clicking (good)
+### Bug 2: Paramount+ Types "A" Before Search Term
+- **Root cause:** A stray key event or DPAD press fires before the search field is focused, injecting "A" into the field.
+- **Fix:** Add longer delay before typing. Clear search field first (send KEYCODE_DEL several times). Confirm field is empty before typing search term.
+- **File:** `ContentLaunchService.kt` (Paramount search section)
 
-**Plan - split into these new files:**
+### Bug 3: HBO Max Goes to Wrong Season (Season 10 instead of chosen)
+- **Root cause:** After landing on show page, DPAD navigation ends up on the last/latest season (Season 10). TV apps pre-focus the newest season.
+- **Fix:** After reaching seasons row, press DPAD_LEFT to go all the way to Season 1, then press DPAD_RIGHT (season# - 1) times to reach target season.
+- **File:** `ContentLaunchService.kt`
 
-```
-ui/
-  components/
-    StreamingAppCard.kt     (KEEP - already exists)
-    TVButton.kt             (NEW - extract from HomeScreen)
-    AlarmCard.kt            (NEW - extract from HomeScreen)
-    ClockDisplay.kt         (NEW - extract clock + AM/PM from HomeScreen)
-    TimePicker.kt           (NEW - extract time picker from HomeScreen)
-    ModeCard.kt             (NEW - extract from ContentPickerScreen)
-    ChannelList.kt          (NEW - extract from ContentPickerScreen)
-    SearchResultCard.kt     (NEW - extract from ContentPickerScreen)
-    EpisodeCard.kt          (NEW - extract from ContentPickerScreen)
-  screens/
-    HomeScreen.kt           (SLIM DOWN - just assembles components)
-    ContentPickerScreen.kt  (SLIM DOWN - just navigation + state)
-    AlarmActivity.kt        (KEEP - already focused)
-
-data/
-  repository/
-    AlarmRepository.kt      (NEW - alarm CRUD, save/load from SharedPreferences)
-    ContentRepository.kt    (NEW - content save/load from SharedPreferences)
-
-service/
-  WakeUpHelper.kt           (NEW - centralize WakeLock + screen on logic)
-```
-
-**Result:** Each file does ONE thing. HomeScreen goes from 561 lines to ~150. ContentPickerScreen goes from 909 lines to ~300. MainActivity drops to ~100 lines.
+### Bug 4: No Episode Selection Built for Any App
+- **Root cause:** Code stops at the show/season page and never navigates into episodes.
+- **Fix:** Build per-app episode navigation sequences (after season selected, go DOWN into episode list, navigate RIGHT to episode#, press CENTER).
+- **Files:** `ContentLaunchService.kt` per-app sections
 
 ---
 
-## Feature 3: Better Deep Link Discovery
+## Feature Backlog
 
-**Current approach - multiple layers already in place:**
-1. **Search-based launch** (`launchWithSearch`) - Opens app and searches by show name (MOST RELIABLE)
-2. **App-specific search URLs** (`getSearchDeepLink`) - Direct URL deep links to search pages (works for 12 apps)
-3. **Android SEARCH intent** - Generic Android intent that some apps handle
-4. **Global media search** - Android TV's built-in search system
-5. **Hardcoded content IDs** (`ContentIdMapper`) - Only ~20 popular shows mapped
-6. **Manual ID entry** - User types in the content ID themselves
+### Feature A: Volume — Ramp Down to 0, Then Up to Chosen Level
+- **Current:** Takes 0-100% and calls setStreamVolume() scaled to device steps. Unreliable.
+- **What user wants:** Choose a specific volume number (e.g., 15 out of 100). Alarm goes ALL THE WAY DOWN to 0 first, then UP to chosen number. Same result every time regardless of starting volume.
+- **Implementation:**
+  1. UI: Change from percentage slider to number picker (e.g. 0–100 mapped to device steps, or just 0–100 device steps directly).
+  2. Service: Send `KEYCODE_VOLUME_DOWN` × max steps to reach 0, then send `KEYCODE_VOLUME_UP` × N to reach target.
+  3. Use `AudioManager.getStreamMaxVolume(STREAM_MUSIC)` to know max.
+  4. Use actual key events (not setStreamVolume) so the physical TV volume responds.
+- **Files:** `ContentLaunchService.kt` → `setTvVolume()`, `AlarmSetupScreen.kt` volume UI
 
-**What's NOT working well:**
-- `ContentIdMapper` only has ~20 shows - most shows won't have deep link IDs
-- Channel IDs in `ChannelGuide` are guesses - no verification they work
-- No way to verify if a deep link actually works before the alarm fires
+### Feature B: Search Memory / History in Alarm App
+- **What:** When user searches for a show/season/episode inside the alarm app, remember it. Next time, show a dropdown of recent searches so they don't have to retype.
+- **Implementation:**
+  - Save history to SharedPreferences: list of (showName, season, episode, appPackage).
+  - In ContentPickerScreen, show history chips when search field is focused.
+  - Max 10 entries, most recent first.
+- **Files:** `ContentPickerScreen.kt`, `ContentRepository.kt`
 
-**Plan - enhance the search-first approach:**
-1. **Use TMDB Watch Providers API** - Already have `getWatchProviders()` but it's not used in the UI! Wire it up to show which apps have a show, so the user picks the right app
-2. **Add deep link verification** - Before saving an alarm, try launching the deep link silently to see if it resolves (using `PackageManager.resolveActivity()`) - don't actually launch, just check if it would work
-3. **Improve search launch as primary strategy** - Since search-based launching is the most reliable, make it the default. When user picks a show, default to SEARCH mode instead of trying to find a content ID first
-4. **Add TMDB external IDs** - TMDB has an "external_ids" endpoint that can give us IMDB IDs. Some streaming apps accept IMDB IDs in their deep links
-5. **Fallback chain improvement** - Add better error messages and automatic fallback: try deep link -> try search -> try app-only -> show error with tips
+### Feature C: In-App Navigation Flow Cleanup
+- **Issue:** After saving an alarm, app jumps to unexpected screens.
+- **Standard flow should be:**
+  1. Home → "+ Add Alarm" → AlarmSetup → "Pick Content" → ContentPicker → select → back to AlarmSetup (content filled in) → "Save" → back to Home (alarm in list).
+  2. Edit: tap alarm on Home → AlarmSetup pre-filled → edit → Save → back to Home.
+- **Fix:** Audit NavController back stack. Ensure "Save" always pops back to Home, not intermediate screen.
+- **Files:** `MainActivity.kt`, `AlarmSetupScreen.kt`
+
+### Feature D: Live TV via In-App Guide (Not Deep Links)
+- **Principle:** Even for live channels, navigate through the in-app guide/EPG.
+- **Per-app plan:**
+  - **Sling:** Launch → CENTER (profile) → navigate to Guide → DPAD to channel → CENTER to tune.
+  - **YouTube TV:** Launch → Live tab → find channel by name.
+  - **Paramount+ Live:** Launch → navigate to Live TV section.
+- **Note:** Lower priority. Build on-demand episode selection first.
 
 ---
 
 ## Implementation Order
 
-I'll do them in this order because each builds on the previous:
-
-1. **Modularize first** - Break files apart so the codebase is clean before adding features
-2. **Wake-on-Alarm** - Fix BootReceiver and centralize wake logic
-3. **Deep Link Discovery** - Wire up TMDB providers, add verification, improve search
+1. **Bug 1** — Sling pause/unpause fix (quick)
+2. **Bug 2** — Paramount "A" prefix fix (quick)
+3. **Bug 3** — HBO Max wrong season fix
+4. **Bug 4** — Episode selection for HBO Max, Disney+, Paramount+, Prime Video, Hulu
+5. **Feature A** — Volume: ramp to 0 then up to chosen level
+6. **Feature B** — Search memory / history dropdown
+7. **Feature C** — In-app navigation flow cleanup
+8. **Feature D** — Live TV via guide
 
 ---
 
-## Step-by-Step Breakdown
+## Completed Work (Do Not Re-Do)
 
-### Step 1: Extract UI Components
-- Create `TVButton.kt` from HomeScreen
-- Create `AlarmCard.kt` from HomeScreen
-- Create `ClockDisplay.kt` from HomeScreen
-- Create `TimePicker.kt` from HomeScreen
-- Create `ModeCard.kt`, `ChannelList.kt`, `SearchResultCard.kt`, `EpisodeCard.kt` from ContentPickerScreen
-- Update imports in HomeScreen, ContentPickerScreen
+- ✅ AlarmManager scheduling (setAlarmClock)
+- ✅ Wake lock + screen on (FULL_WAKE_LOCK + ACQUIRE_CAUSES_WAKEUP)
+- ✅ Profile bypass (CENTER click after app loads)
+- ✅ Force-stop before relaunch (clean cold start)
+- ✅ ADB over TCP for key injection (localhost:5555)
+- ✅ Disney+ PIN pad entry
+- ✅ Per-app load wait times (tuned to real hardware)
+- ✅ MEDIA_PLAY as final safety to guarantee playback
+- ✅ Foreground service to survive process freeze
+- ✅ BootReceiver skeleton
+- ✅ UI modularization (components split out)
+- ✅ Repository pattern (AlarmRepository, ContentRepository)
 
-### Step 2: Create Repositories
-- Create `AlarmRepository.kt` - move save/load alarm logic from MainActivity
-- Create `ContentRepository.kt` - move save/load content logic from MainActivity
-- Slim down MainActivity to just use repositories
+---
 
-### Step 3: Fix BootReceiver + WakeUpHelper
-- Create `WakeUpHelper.kt` - centralize WakeLock logic from AlarmReceiver
-- Fix `BootReceiver.kt` - actually reload and reschedule saved alarms
-- Add SCHEDULE_EXACT_ALARM permission handling
+## Key Technical Rules (Never Break These)
 
-### Step 4: Deep Link Improvements
-- Wire up TMDB watch providers in ContentPickerScreen
-- Add `resolveActivity()` verification in StreamingLauncher
-- Add TMDB external IDs lookup
-- Improve fallback chain with better error messages
-- Make SEARCH mode the default when no content ID is known
-
-### Step 5: Build, Test, Commit
-- Build the project
-- Install on emulator
-- Test alarm flow end-to-end
-- Commit and push to GitHub
+- **DPAD_CENTER toggles play/pause** — always use MEDIA_PLAY to force playback. Never send extra CENTER presses after content starts.
+- **ADB TCP (localhost:5555)** must be enabled via `adb tcpip 5555`. All key injection goes through this.
+- **React Native apps (Sling, Paramount+)** need long waits. Sling = 35s cold start minimum.
+- **WebView apps (HBO Max, Hulu)** are fully opaque to accessibility. All navigation is blind DPAD with timed delays.
+- **Disney+ and Paramount+** expose some accessibility info — can verify state via text.
+- **Search ALWAYS beats deep links for on-demand content.** Deep links only for live TV when guide navigation isn't built yet.
