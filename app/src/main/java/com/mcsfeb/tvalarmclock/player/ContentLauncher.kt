@@ -44,16 +44,14 @@ class ContentLauncher(private val context: Context) {
     /**
      * Main entry point to launch content.
      *
+     * PHILOSOPHY: Search + DPAD navigation for on-demand content. Deep links only for
+     * live TV channels (Sling) and direct video playback (Netflix, YouTube).
+     *
      * Uses ContentLaunchService (foreground service) to survive process freezing.
-     * When our activity launches a streaming app and goes to background, Android
-     * freezes our process. The foreground service stays alive to:
-     * 1. Send the deep link intent
-     * 2. Wait for the app to cold-start
-     * 3. Send DPAD_CENTER to bypass profile pickers
      *
      * @param packageName The package name of the target app (e.g., "com.netflix.ninja")
      * @param contentType "episode" | "movie" | "live"
-     * @param identifiers Map of IDs: "episodeId", "titleId", "showName", "season", "episode", "channelName"
+     * @param identifiers Map: "showName", "season", "episode", "id", "channelName"
      */
     fun launchContent(
         packageName: String,
@@ -63,46 +61,72 @@ class ContentLauncher(private val context: Context) {
     ) {
         Log.i(TAG, "launchContent: $packageName, type=$contentType, ids=$identifiers, volume=$volume")
 
-        // Apps that should ALWAYS use normal launch (deep links broken/unreliable):
-        // - Sling: deep links break the player on cold start
-        // - Disney+: deep links don't navigate to content on TV app
+        // Extract search navigation parameters
+        val searchQuery = identifiers["showName"] ?: ""
+        val seasonNumber = identifiers["season"]?.toIntOrNull() ?: 1
+        val episodeNumber = identifiers["episode"]?.toIntOrNull() ?: 1
+
+        // SEARCH MODE: If show name + episode info is set → always use DPAD search navigation.
+        // Core philosophy: Search + DPAD is reliable. Deep links are brittle.
+        // Exception: if a specific content ID is present, use deep link regardless (e.g., Netflix).
+        val hasContentId = identifiers["id"].isNullOrBlank().not() ||
+                           identifiers["episodeId"].isNullOrBlank().not() ||
+                           identifiers["contentId"].isNullOrBlank().not()
+        val useSearchNav = searchQuery.isNotBlank() && (seasonNumber > 0 || episodeNumber > 0) && !hasContentId
+
+        // Apps that always use normal launch (no reliable content-specific deep links):
+        // - Sling: live TV, auto-plays last channel. No episode search needed.
+        // - Disney+: deep links don't navigate to content reliably on TV app.
         val alwaysNormalLaunch = setOf("com.sling", "com.disney.disneyplus")
 
-        if (packageName in alwaysNormalLaunch) {
-            Log.i(TAG, "$packageName: Using normal launch (deep links unreliable)")
-            ContentLaunchService.launch(context, packageName, "APP_ONLY", emptyMap(), volume)
+        if (useSearchNav || packageName in alwaysNormalLaunch) {
+            Log.i(TAG, "$packageName: Search/normal launch (query='$searchQuery' S$seasonNumber E$episodeNumber)")
+            ContentLaunchService.launch(
+                context = context,
+                packageName = packageName,
+                deepLinkUri = "APP_ONLY",
+                extras = emptyMap(),
+                volume = volume,
+                searchQuery = searchQuery,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber
+            )
             return
         }
 
-        // HBO Max: Only use deep link if content ID looks like a UUID
-        // Old urn:hbo format and non-UUID IDs show "item not found"
-        if (packageName == "com.wbd.stream") {
-            val contentId = identifiers["id"] ?: ""
-            val isUuid = contentId.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", RegexOption.IGNORE_CASE))
-            if (!isUuid) {
-                Log.i(TAG, "HBO Max: Content ID '$contentId' is not a UUID, using normal launch")
-                ContentLaunchService.launch(context, packageName, "APP_ONLY", emptyMap(), volume)
-                return
-            }
+        // DEEP LINK MODE: No search query — direct link to content.
+        // Used for: Netflix by ID, YouTube videos, Tubi, live TV channels.
+        val deepLinks = getPrioritizedDeepLinks(packageName, identifiers)
+        val extras = mutableMapOf<String, String>()
+        if (packageName == "com.netflix.ninja") {
+            extras["source"] = "30"
         }
 
-        // Build the best deep link URI
-        val deepLinks = getPrioritizedDeepLinks(packageName, identifiers)
         if (deepLinks.isNotEmpty()) {
             val uri = deepLinks.first().toString()
-            Log.i(TAG, "Using foreground service to launch: $uri")
-
-            // Build extras map (e.g., Netflix source=30)
-            val extras = mutableMapOf<String, String>()
-            if (packageName == "com.netflix.ninja") {
-                extras["source"] = "30"
-            }
-
-            ContentLaunchService.launch(context, packageName, uri, extras, volume)
+            Log.i(TAG, "Using deep link: $uri")
+            ContentLaunchService.launch(
+                context = context,
+                packageName = packageName,
+                deepLinkUri = uri,
+                extras = extras,
+                volume = volume,
+                searchQuery = searchQuery,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber
+            )
         } else {
-            // No deep links available — use normal launch via service
             Log.i(TAG, "No deep links for $packageName, using normal launch")
-            ContentLaunchService.launch(context, packageName, "APP_ONLY", emptyMap(), volume)
+            ContentLaunchService.launch(
+                context = context,
+                packageName = packageName,
+                deepLinkUri = "APP_ONLY",
+                extras = emptyMap(),
+                volume = volume,
+                searchQuery = searchQuery,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber
+            )
         }
     }
 

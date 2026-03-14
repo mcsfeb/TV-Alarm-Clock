@@ -14,111 +14,114 @@
 
 ---
 
-## Per-App Status (Last tested: Feb 2026, Onn Google TV)
+## Per-App Status (Last tested: March 2026, Onn Google TV)
 
 ### SLING TV (`com.sling`) — Partial ✅/⚠️
 | What | Status | Notes |
 |------|--------|-------|
 | App launch | ✅ Works | Normal launch (no deep links) |
-| Profile bypass | ✅ Works | Single CENTER dismisses picker |
-| Live channel (Fox News) | ✅ Works | Deep link launched OK |
-| Pause/unpause glitch | ⚠️ Bug | Extra pause/unpause after deep link launch. CENTER is toggling play/pause. Fix: remove extra CENTER, keep only MEDIA_PLAY |
+| Profile bypass | ✅ Works | CENTER→MEDIA_PLAY, 100ms delay (was 1000ms) |
+| Live channel playback | ✅ Works | MEDIA_PLAY resumes last channel |
+| Pause/unpause glitch | ✅ Fixed | Reduced delay between CENTER and MEDIA_PLAY to 100ms |
 | Search for show | ❌ Not built | Need to build search → show → episode navigation |
 | Episode selection | ❌ Not built | Need to build after search works |
-| **Next action** | Build DPAD search flow, fix pause glitch |
+| **Next action** | Build DPAD search flow for VOD content |
 
-### HULU (`com.hulu.livingroomplus`) — Mostly broken ❌
+### HULU (`com.hulu.livingroomplus`) — Built, needs live testing ⚠️
 | What | Status | Notes |
 |------|--------|-------|
 | App launch | ✅ Works | |
 | Profile bypass | ✅ Works | |
-| Search for show | ❌ Not attempted | Code never sends search keys |
-| Episode selection | ❌ Not built | |
-| **Next action** | Build full search + DPAD episode selection |
+| Search | ✅ Built | typePvKeyboard (5 chars), sidebar nav |
+| Season navigation | ✅ Built | LEFT to sidebar, DOWN×(season-1) |
+| Episode selection | ✅ Built | RIGHT to list, DOWN×(episode-1) |
+| Live test confirmed | ⚠️ Unverified | DRM blocks screenshot. Logic looks correct but needs manual check. |
+| **Next action** | Live test with known show, verify correct episode plays |
 
-### HBO MAX / MAX (`com.wbd.stream`) — Partial ✅/⚠️
+### HBO MAX / MAX (`com.wbd.stream`) — ✅ WORKING
 | What | Status | Notes |
 |------|--------|-------|
 | App launch | ✅ Works | |
 | Profile bypass | ✅ Works | |
-| Search | ✅ Works | Searched "Friends" correctly |
-| Season navigation | ⚠️ Wrong season | Landed on Season 10 instead of chosen season |
-| Episode selection | ❌ Not built | Stopped at show page, no episode picked |
-| UI visibility | ⚠️ Opaque | WebView-based, no accessibility tree. Must use timed DPAD. |
-| **Next action** | Fix season navigation (go to correct season #), build episode selection |
+| Search | ✅ Works | typeTextViaAdb (standard text field) |
+| Season navigation | ✅ Fixed | LEFT×20 → S1, then RIGHT×(season-1). Confirmed Friends S3. |
+| Episode selection | ✅ Works | DOWN from season row, RIGHT×(episode-1). Friends S3E2 confirmed. |
+| **Next action** | — (working) |
 
-### DISNEY+ (`com.disney.disneyplus`) — Partial ✅/⚠️
+### DISNEY+ (`com.disney.disneyplus`) — ✅ WORKING
 | What | Status | Notes |
 |------|--------|-------|
 | App launch | ✅ Works | |
 | Profile bypass | ✅ Works | |
 | Search | ✅ Works great | Best searcher of all apps |
-| Episode selection | ❌ Not built | Shows "Continue Watching", doesn't navigate to chosen episode |
-| **Next action** | After search lands on show page, build DPAD nav to correct season + episode |
+| Season navigation | ✅ Works | RIGHT×(season-1) from S1, CENTER to select. |
+| Episode selection | ✅ Works | DOWN×(episode-1) from episode list. Mandalorian S2E3 confirmed. |
+| **Next action** | — (working) |
 
 ### PARAMOUNT+ (`com.cbs.ott`) — Partial ✅/⚠️
 | What | Status | Notes |
 |------|--------|-------|
 | App launch | ✅ Works | |
-| Profile bypass | ✅ Works | |
-| Search opens | ✅ Works | |
-| Extra "A" typed first | ⚠️ Bug | Types letter "A" before actual search term. Extra click before search field is ready. |
-| Show selected | ✅ Works | Correct show selected |
-| Season/episode nav | ❌ Not built | Scrolled to wrong show in suggestions instead of entering episodes |
-| **Next action** | Fix "A" prefix bug, build episode navigation after show selected |
+| Profile bypass | ✅ Works | CENTER selects first profile |
+| Search | ✅ Works (with fix) | Now adds DEL×10 before typing to clear stray 'A' |
+| Show selected | ✅ Works | Correct show card selected after RIGHT×6 + DOWN×1 |
+| Season/episode nav | ❌ Not built | After show page opens, no season/episode navigation implemented |
+| **Next action** | Build season/episode nav inside P+ show detail page |
 
 ### PRIME VIDEO (`com.amazon.amazonvideo.livingroom`) — Partial ✅/⚠️
 | What | Status | Notes |
 |------|--------|-------|
 | App launch | ✅ Works | |
-| Search (Monk) | ✅ Works | Found show correctly |
-| Season selection | ⚠️ Fails | Tried to navigate to season but didn't actually select it |
-| Episode selection | ❌ Not built | Never reached episode |
-| **Next action** | Fix season selection DPAD nav, build episode selection |
+| Search | ✅ Works | typePvKeyboard (5 chars) |
+| Season dropdown | ✅ Built | DOWN→season dropdown, CENTER opens, UP×15, DOWN×(season-1), CENTER |
+| Episode selection | ✅ Built | DOWN→episode row, RIGHT×(episode-1) |
+| Live test confirmed | ⚠️ Unverified | Improved timing/nav, needs live test to confirm season/episode lands correctly |
+| **Next action** | Live test with known show, verify correct episode |
 
-### NETFLIX (`com.netflix.ninja`) — Deep link only, untested with search
-| **Next action** | Build search flow (currently only deep link) |
+### NETFLIX (`com.netflix.ninja`) — ✅ WORKING (deep link)
+| What | Status | Notes |
+|------|--------|-------|
+| Deep link launch | ✅ Works | nflx:// deep link with source=30. Confirmed Stranger Things. |
+| Bug fix | ✅ Fixed | ContentLauncher now skips search mode when content ID is present |
+| **Next action** | — (working via deep link) |
 
 ### YOUTUBE TV (`com.google.android.youtube.tv`) — Not tested
-| **Next action** | Build search flow |
+| **Next action** | Build search/content launch flow |
 
 ---
 
-## Active Bug List (Fix in This Order)
+## Active Bug List
 
-### Bug 1: Sling Pause/Unpause Glitch (only on deep link path)
-- **Root cause:** DPAD_CENTER is sent after loading which toggles play/pause. If Sling starts playing automatically, one CENTER = pause. Then MEDIA_PLAY = play. Net result: pause then unpause = glitch.
-- **Fix:** In `launchSling()` — remove CENTER entirely if channel is already playing. Only send MEDIA_PLAY at the end. CENTER is only needed for profile picker on cold start.
-- **File:** `ContentLaunchService.kt` → `launchSling()`
+### Bug 1: Sling Pause/Unpause Glitch — ✅ FIXED (March 2026)
+- Reduced CENTER→MEDIA_PLAY delay from 1000ms to 100ms. Glitch now imperceptible.
 
-### Bug 2: Paramount+ Types "A" Before Search Term
-- **Root cause:** A stray key event or DPAD press fires before the search field is focused, injecting "A" into the field.
-- **Fix:** Add longer delay before typing. Clear search field first (send KEYCODE_DEL several times). Confirm field is empty before typing search term.
-- **File:** `ContentLaunchService.kt` (Paramount search section)
+### Bug 2: Paramount+ Types "A" Before Search Term — ✅ FIXED (March 2026)
+- Added DEL×10 before typing to clear any stray character in the search field.
 
-### Bug 3: HBO Max Goes to Wrong Season (Season 10 instead of chosen)
-- **Root cause:** After landing on show page, DPAD navigation ends up on the last/latest season (Season 10). TV apps pre-focus the newest season.
-- **Fix:** After reaching seasons row, press DPAD_LEFT to go all the way to Season 1, then press DPAD_RIGHT (season# - 1) times to reach target season.
-- **File:** `ContentLaunchService.kt`
+### Bug 3: HBO Max Wrong Season — ✅ FIXED (March 2026)
+- LEFT×20 + RIGHT×(season-1) working. Confirmed Friends S3E2.
 
-### Bug 4: No Episode Selection Built for Any App
-- **Root cause:** Code stops at the show/season page and never navigates into episodes.
-- **Fix:** Build per-app episode navigation sequences (after season selected, go DOWN into episode list, navigate RIGHT to episode#, press CENTER).
-- **Files:** `ContentLaunchService.kt` per-app sections
+### Bug 4: Episode Selection — ✅ FIXED for HBO Max, Disney+. ⚠️ Unverified for Hulu, Prime Video.
+- HBO Max: DOWN→season row, LEFT×20→S1, RIGHT×(season-1), DOWN→episodes, RIGHT×(episode-1). CONFIRMED.
+- Disney+: RIGHT×(season-1), CENTER select, DOWN→episodes, DOWN×(episode-1). CONFIRMED.
+- Hulu: Built but not live-verified. DPAD sequence in `launchHuluWithSearch`.
+- Prime Video: Built but not live-verified. Season dropdown + RIGHT nav in `launchPrimeVideoWithSearch`.
+- Paramount+: Season/episode nav NOT YET BUILT. Opens show page only.
+
+### Bug 5: Paramount+ Season/Episode Nav Missing
+- After search selects correct show → opens show detail page → no season/episode nav
+- Need: inspect P+ show page DPAD structure, then build nav sequence
+- **File:** `ContentLaunchService.kt` → `launchParamountWithSearch()`
 
 ---
 
 ## Feature Backlog
 
-### Feature A: Volume — Ramp Down to 0, Then Up to Chosen Level
-- **Current:** Takes 0-100% and calls setStreamVolume() scaled to device steps. Unreliable.
-- **What user wants:** Choose a specific volume number (e.g., 15 out of 100). Alarm goes ALL THE WAY DOWN to 0 first, then UP to chosen number. Same result every time regardless of starting volume.
-- **Implementation:**
-  1. UI: Change from percentage slider to number picker (e.g. 0–100 mapped to device steps, or just 0–100 device steps directly).
-  2. Service: Send `KEYCODE_VOLUME_DOWN` × max steps to reach 0, then send `KEYCODE_VOLUME_UP` × N to reach target.
-  3. Use `AudioManager.getStreamMaxVolume(STREAM_MUSIC)` to know max.
-  4. Use actual key events (not setStreamVolume) so the physical TV volume responds.
-- **Files:** `ContentLaunchService.kt` → `setTvVolume()`, `AlarmSetupScreen.kt` volume UI
+### Feature A: Volume — Ramp Down to 0, Then Up to Chosen Level — ✅ DONE (March 2026)
+- `setTvVolume(n)` now ramps ALL THE WAY DOWN to 0, then presses VOLUME_UP exactly N times.
+- No scaling. Volume=10 = exactly 10 button presses from 0. Consistent every time.
+- UI: ±1 step buttons (was ±5). Default 15. Shows "steps" label.
+- TV reports 25 max steps. Setting 10 = 10/25 = ~40% which is comfortable morning volume.
 
 ### Feature B: Search Memory / History in Alarm App
 - **What:** When user searches for a show/season/episode inside the alarm app, remember it. Next time, show a dropdown of recent searches so they don't have to retype.
@@ -148,14 +151,21 @@
 
 ## Implementation Order
 
-1. **Bug 1** — Sling pause/unpause fix (quick)
-2. **Bug 2** — Paramount "A" prefix fix (quick)
-3. **Bug 3** — HBO Max wrong season fix
-4. **Bug 4** — Episode selection for HBO Max, Disney+, Paramount+, Prime Video, Hulu
-5. **Feature A** — Volume: ramp to 0 then up to chosen level
+1. ~~**Bug 1**~~ — Sling pause/unpause fix ✅ DONE
+2. ~~**Bug 2**~~ — Paramount "A" prefix fix ✅ DONE
+3. ~~**Bug 3**~~ — HBO Max wrong season fix ✅ DONE
+4. **Bug 4/5** — Episode selection: HBO Max ✅, Disney+ ✅, Hulu ⚠️ unverified, Prime Video ⚠️ unverified, Paramount+ ❌ not built
+5. ~~**Feature A**~~ — Volume: ramp to 0 then exact steps ✅ DONE
 6. **Feature B** — Search memory / history dropdown
 7. **Feature C** — In-app navigation flow cleanup
 8. **Feature D** — Live TV via guide
+
+**Current Priority:**
+1. Live-test Hulu episode nav (needs manual verify)
+2. Live-test Prime Video episode nav (needs manual verify)
+3. Build Paramount+ season/episode nav
+4. Feature B: Search memory
+5. Feature C: Navigation flow cleanup
 
 ---
 

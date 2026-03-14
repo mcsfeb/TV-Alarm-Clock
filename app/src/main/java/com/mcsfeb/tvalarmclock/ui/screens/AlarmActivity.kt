@@ -95,9 +95,11 @@ class AlarmActivity : ComponentActivity() {
             val type = if (content.app.name == "SLING_TV" || content.launchMode == LaunchMode.APP_ONLY) "live" else "episode"
             
             ContentLauncher.getInstance(this).launchContent(content.app.packageName, type, identifiers, volume)
-            
+
             WakeUpHelper.releaseWakeLock()
-            finish()
+            // Delay finish() by 5s to keep this window alive while ContentLaunchService
+            // calls startActivity() — prevents Android's Background Activity Launch (BAL_BLOCK).
+            lifecycleScope.launch { delay(5000); finish() }
             return // Exit onCreate, do not set content view
         }
 

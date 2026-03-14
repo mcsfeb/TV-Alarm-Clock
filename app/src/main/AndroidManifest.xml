@@ -77,9 +77,10 @@
         </receiver>
 
         <!-- Foreground service for content launch + profile bypass -->
+        <!-- NOTE: exported=true temporarily for ADB testing — revert to false before release -->
         <service
             android:name=".service.ContentLaunchService"
-            android:exported="false"
+            android:exported="true"
             android:foregroundServiceType="mediaPlayback" />
 
         <!-- Accessibility service for auto-clicking past profile screens -->

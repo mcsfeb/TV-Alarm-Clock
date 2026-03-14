@@ -5,8 +5,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -45,9 +43,9 @@ fun AlarmSetupScreen(
     var minute by remember { mutableIntStateOf(editingMinute ?: 0) }
     var timeSet by remember { mutableStateOf(editingHour != null) }
 
-    // Volume: -1 = don't change, 0-100 = set to this level
+    // Volume: -1 = don't change, 0+ = exact number of VOLUME_UP presses from 0
     var volumeEnabled by remember { mutableStateOf(editingVolume >= 0) }
-    var volumeLevel by remember { mutableFloatStateOf(if (editingVolume >= 0) editingVolume.toFloat() else 30f) }
+    var volumeLevel by remember { mutableFloatStateOf(if (editingVolume >= 0) editingVolume.toFloat() else 15f) }
 
     Box(
         modifier = Modifier
@@ -152,24 +150,46 @@ fun AlarmSetupScreen(
                         if (volumeEnabled) {
                             Spacer(modifier = Modifier.width(12.dp))
 
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "${volumeLevel.toInt()}%",
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = AlarmActiveGreen,
-                                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                            // Number picker: − / value / + buttons (better for TV DPAD)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                TVButton(
+                                    text = "−",
+                                    color = TextSecondary,
+                                    compact = true,
+                                    onClick = {
+                                        volumeLevel = (volumeLevel - 1).coerceAtLeast(0f)
+                                    }
                                 )
-                                Slider(
-                                    value = volumeLevel,
-                                    onValueChange = { volumeLevel = it },
-                                    valueRange = 0f..100f,
-                                    steps = 9, // 0, 10, 20, ..., 100
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = AlarmActiveGreen,
-                                        activeTrackColor = AlarmActiveGreen,
-                                        inactiveTrackColor = DarkSurfaceVariant
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = volumeLevel.toInt().toString(),
+                                        fontSize = 32.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = AlarmActiveGreen,
+                                        textAlign = TextAlign.Center
                                     )
+                                    Text(
+                                        text = "steps",
+                                        fontSize = 11.sp,
+                                        color = TextSecondary,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                TVButton(
+                                    text = "+",
+                                    color = AlarmActiveGreen,
+                                    compact = true,
+                                    onClick = {
+                                        volumeLevel = (volumeLevel + 1).coerceAtMost(100f)
+                                    }
                                 )
                             }
                         } else {
