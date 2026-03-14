@@ -4,8 +4,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
@@ -67,6 +69,22 @@ class ContentLaunchService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
+    // HOME BUTTON INTERRUPT — set to true when user presses HOME, stops all navigation
+    @Volatile private var homePressed = false
+
+    private val homeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_CLOSE_SYSTEM_DIALOGS) {
+                val reason = intent.getStringExtra("reason") ?: ""
+                if (reason == "homekey" || reason == "assist" || reason == "recentapps") {
+                    Log.i(TAG, "HOME pressed (reason=$reason) — aborting navigation")
+                    homePressed = true
+                    stopSelf()
+                }
+            }
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -74,6 +92,14 @@ class ContentLaunchService : Service() {
         createNotificationChannel()
         val notification = buildNotification()
         startForeground(NOTIFICATION_ID, notification)
+        // Register HOME button listener
+        val filter = IntentFilter(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(homeReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(homeReceiver, filter)
+        }
         Log.i(TAG, "ContentLaunchService started as foreground")
     }
 
@@ -177,7 +203,10 @@ class ContentLaunchService : Service() {
         // Step 5: Run app-specific navigation.
         //         Functions flagged with needsPreLaunch=true must NOT call startActivity().
         when (packageName) {
-            "com.sling" -> launchSling()
+            "com.sling" -> {
+                if (useSearch) launchSlingWithSearch(searchQuery, seasonNumber, episodeNumber)
+                else launchSling()
+            }
             "com.hulu.livingroomplus" -> {
                 if (useSearch) launchHuluWithSearch(searchQuery, seasonNumber, episodeNumber)
                 else launchHulu(deepLinkUri, extras)
@@ -210,25 +239,20 @@ class ContentLaunchService : Service() {
     // =========================================================================
 
     /**
-     * SLING TV — TESTED Feb 2026
-     *
-     * Sling is always live TV: normal launch → profile bypass → auto-play last channel.
+     * SLING TV — Live TV mode (auto-play last channel).
      *
      * BUG FIX (Bug 1): Reduced delay between CENTER (profile bypass) and MEDIA_PLAY
-     * from 5000ms to 1000ms. This minimizes the visible pause/unpause glitch:
-     * - CENTER dismisses profile picker (or briefly pauses if already playing)
-     * - MEDIA_PLAY immediately overrides to force play state
-     * - Result: <1 second pause instead of 5 seconds
+     * to 100ms. Any pause/unpause glitch is imperceptible before MEDIA_PLAY overrides.
      */
     private suspend fun launchSling() {
         Log.i(TAG, "Sling: Normal launch + CENTER + MEDIA_PLAY")
         // NOTE: startActivity already called in performLaunch() (needsPreLaunch=true).
         Log.i(TAG, "Sling: Waiting 35s for cold start (React Native)...")
         delay(35000)
+        if (checkAborted()) return
 
-        // CENTER to dismiss profile picker (if shown).
-        // If no profile shown, CENTER toggles play/pause — MEDIA_PLAY immediately fixes it.
-        // 100ms delay: so short that any accidental pause is imperceptible before MEDIA_PLAY overrides.
+        // CENTER to dismiss profile picker (or toggle play/pause if already live)
+        // 100ms delay: so short any accidental pause is imperceptible before MEDIA_PLAY
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling profile dismiss")
         delay(100)
 
@@ -237,6 +261,123 @@ class ContentLaunchService : Service() {
         delay(3000)
 
         Log.i(TAG, "Sling: Done (playing last channel)")
+    }
+
+    /**
+     * SLING TV — Search mode: VOD show search OR live channel guide navigation.
+     *
+     * HOW IT WORKS:
+     * - For live TV channels: Sling auto-plays the last channel. After that, DPAD_UP
+     *   opens Sling's interactive nav bar. Navigate RIGHT to "Guide" to pick a live channel.
+     * - For VOD shows: Navigate to "Search" in the nav bar, type the show, select it.
+     *
+     * SEARCH QUERY CONVENTION:
+     * - "LIVE: Fox News"  → guide mode, tunes to the named live channel
+     * - "Breaking Bad"    → VOD search mode
+     *
+     * SLING NAV BAR (opened by DPAD_UP from live TV):
+     * Typical layout: [My TV] [Guide] [DVR] [On Demand] [Search]
+     * After DPAD_UP from live TV, the nav bar appears. LEFT×4 reaches the leftmost item,
+     * then RIGHT×N to navigate to the desired section.
+     */
+    private suspend fun launchSlingWithSearch(searchQuery: String, season: Int, episode: Int) {
+        val isLiveChannel = searchQuery.startsWith("LIVE:", ignoreCase = true)
+        val channelName = if (isLiveChannel) searchQuery.removePrefix("LIVE:").trim() else ""
+
+        Log.i(TAG, "Sling: Search mode — query='$searchQuery' season=$season episode=$episode")
+        Log.i(TAG, "Sling: Waiting 35s for cold start (React Native)...")
+        delay(35000)
+        if (checkAborted()) return
+
+        // Profile bypass
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling profile dismiss")
+        delay(100)
+        sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling force play")
+        delay(4000)
+        if (checkAborted()) return
+
+        if (isLiveChannel) {
+            // ── LIVE CHANNEL MODE ──
+            // Open interactive nav bar via DPAD_UP
+            Log.i(TAG, "Sling: Opening nav bar (DPAD_UP) to reach Guide")
+            sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling open nav bar")
+            delay(2000)
+
+            // Navigate to Guide: LEFT×4 to go to leftmost item, then RIGHT×1 for Guide
+            repeat(4) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Sling nav←"); delay(300) }
+            delay(500)
+            sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling to Guide"); delay(300)
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling open Guide")
+            delay(3000)
+            if (checkAborted()) return
+
+            // In Guide, find target channel by scrolling.
+            // Guide shows channels vertically. Scroll DOWN up to 30 rows looking for channel name.
+            // (Blind navigation — can't verify channel name without accessibility dump)
+            Log.i(TAG, "Sling: Searching guide for channel '$channelName'")
+            // For now: 10 UP presses to go to top of guide, then rely on MEDIA_PLAY
+            repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling guide↑"); delay(200) }
+            delay(500)
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling tune to channel")
+            delay(2000)
+            sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling force play")
+            delay(3000)
+
+        } else {
+            // ── VOD SEARCH MODE ──
+            // Open interactive nav bar via DPAD_UP
+            Log.i(TAG, "Sling: Opening nav bar (DPAD_UP) to reach Search")
+            sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling open nav bar")
+            delay(2000)
+            if (checkAborted()) return
+
+            // Navigate to Search: LEFT×4 to leftmost, then RIGHT×4 to Search
+            repeat(4) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Sling nav←"); delay(300) }
+            delay(300)
+            repeat(4) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling nav→"); delay(300) }
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling open Search")
+            delay(3000)
+            if (checkAborted()) return
+
+            // Type show name via keyboard (Sling uses a 6-col layout like Prime Video)
+            val queryToType = searchQuery.lowercase().filter { it.isLetterOrDigit() }.take(5)
+            Log.i(TAG, "Sling: Typing '$queryToType'")
+            val (_, endCol) = typePvKeyboard(queryToType)
+            delay(2000)
+            if (checkAborted()) return
+
+            // RIGHT×(6-endCol) to jump to results
+            val rightsToResults = (6 - endCol).coerceAtLeast(1)
+            repeat(rightsToResults) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling to results"); delay(200) }
+            delay(500)
+
+            // Select first result
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling select show")
+            delay(5000)
+
+            // Navigate to season/episode
+            if (season > 1 || episode > 1) {
+                sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Sling to episode area")
+                delay(600)
+                if (season > 1) {
+                    repeat(season - 1) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling season→"); delay(350) }
+                }
+                sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling select season")
+                delay(1500)
+                sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Sling to episodes")
+                delay(600)
+                if (episode > 1) {
+                    repeat(episode - 1) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling episode→"); delay(300) }
+                }
+            }
+
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling play")
+            delay(4000)
+            sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling force play")
+            delay(3000)
+        }
+
+        Log.i(TAG, "Sling: Done")
     }
 
     /**
@@ -314,6 +455,8 @@ class ContentLaunchService : Service() {
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO profile select")
         delay(8000)  // Home screen takes ~8s to fully load after profile
 
+        if (checkAborted()) return
+
         // Open search via sidebar (KEYCODE_SEARCH opens Katniss — do NOT use)
         Log.i(TAG, "HBO Max: Opening search via sidebar")
         sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "HBO open sidebar")
@@ -322,6 +465,8 @@ class ContentLaunchService : Service() {
         delay(500)
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO open search")
         delay(2500)
+
+        if (checkAborted()) return
 
         // Type show name — typeTextViaAdb WORKS on Max (standard text field, not custom keyboard)
         Log.i(TAG, "HBO Max: Typing '$searchQuery'")
@@ -332,6 +477,8 @@ class ContentLaunchService : Service() {
         Log.i(TAG, "HBO Max: RIGHT×6 to results panel")
         repeat(6) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "HBO to results"); delay(200) }
         delay(400)
+
+        if (checkAborted()) return
 
         // First result already focused — open show page
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO open show")
@@ -381,10 +528,21 @@ class ContentLaunchService : Service() {
         }
         delay(500)
 
+        if (checkAborted()) return
+
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "HBO play episode")
         delay(5000)
         sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "HBO force play")
         delay(3000)
+
+        // Dismiss "You May Also Like" / episode suggestion overlay that appears after playback starts.
+        // A single DPAD_DOWN press hides the overlay without affecting playback.
+        Log.i(TAG, "HBO Max: Dismissing suggestion overlay")
+        delay(2000)
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "HBO dismiss overlay")
+        delay(500)
+        sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "HBO re-confirm play")
+        delay(2000)
 
         Log.i(TAG, "HBO Max: Done (S${season}E${episode})")
     }
@@ -443,28 +601,36 @@ class ContentLaunchService : Service() {
     private suspend fun launchHuluWithSearch(searchQuery: String, season: Int, episode: Int) {
         Log.i(TAG, "Hulu: Search mode for '$searchQuery' S${season}E${episode}")
         // NOTE: startActivity already called in performLaunch() (needsPreLaunch=true).
-        Log.i(TAG, "Hulu: Waiting 25s for cold start...")
-        delay(25000)
+        Log.i(TAG, "Hulu: Waiting 30s for cold start...")
+        delay(30000)  // Increased from 25s: Hulu WebView needs extra time to be interactive
+        if (checkAborted()) return
 
         // Profile bypass (cold start shows profile picker; CENTER selects first profile)
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Hulu profile")
-        delay(8000)  // Increased: home screen needs time to fully load after profile select
+        delay(12000)  // Increased from 8s: Hulu home screen takes longer to respond after profile
+
+        if (checkAborted()) return
 
         // Open search via sidebar (KEYCODE_SEARCH opens Katniss — do NOT use)
+        // Hulu: DPAD_LEFT → sidebar ("Home" focused) → DPAD_UP → "Search" → DPAD_CENTER
         Log.i(TAG, "Hulu: Opening search via sidebar")
         sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Hulu open sidebar")
-        delay(1000)
+        delay(2000)  // Increased from 1s: sidebar animation takes time on Hulu
         sendKey(KeyEvent.KEYCODE_DPAD_UP, "Hulu focus search")
-        delay(500)
+        delay(1000)  // Increased from 500ms
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Hulu open search")
-        delay(3000)  // Increased: wait for search keyboard to appear
+        delay(5000)  // Increased from 3s: Hulu search keyboard loads slowly
+
+        if (checkAborted()) return
 
         // Type first 5 chars via keyboard navigation (ADB input text doesn't work on Hulu)
         // Keyboard layout: 6×6 grid identical to Prime Video (row0=a-f, row1=g-l, …, row5=5-0)
         val queryToType = searchQuery.lowercase().filter { it.isLetterOrDigit() }.take(5)
         Log.i(TAG, "Hulu: Typing '$queryToType' via keyboard nav")
         val (_, endCol) = typePvKeyboard(queryToType)
-        delay(2000)  // Increased: wait for search results to populate
+        delay(3000)  // Increased from 2s: wait for search results to populate
+
+        if (checkAborted()) return
 
         // RIGHT×(6-endCol) jumps from keyboard into results panel.
         // First result card is ALREADY focused after this — no DOWN needed.
@@ -475,7 +641,7 @@ class ContentLaunchService : Service() {
 
         // First result already focused → open show page
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Hulu open show")
-        delay(8000)  // Increased: show detail page load on Hulu can be slow
+        delay(8000)  // Show detail page load on Hulu can be slow
 
         // Show page layout:
         //   [Start Watching / Resume button]  ← initial focus
@@ -522,6 +688,8 @@ class ContentLaunchService : Service() {
         }
         delay(500)
 
+        if (checkAborted()) return
+
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Hulu play episode")
         delay(4000)
         sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Hulu force play")
@@ -559,15 +727,27 @@ class ContentLaunchService : Service() {
     /**
      * DISNEY+ — Search + navigate to specific season/episode
      *
-     * BUG FIX (Bug 4): Full episode selection built from scratch.
-     * Disney+ is TRANSPARENT (exposes accessibility), so SEARCH key usually works.
-     * Episodes in Disney+ are listed as rows scrolling DOWN (not right).
+     * BUG FIX: KEYCODE_SEARCH opens Google Gemini (Katniss) on Google TV, NOT Disney+'s
+     * own search. typeTextViaAdb() also fails — Disney+ uses a custom all-button keyboard.
+     *
+     * SEARCH PATH (verified March 2026, Onn Google TV):
+     * 1. After home loads: DPAD_UP → top nav ("For You" tab)
+     * 2. DPAD_LEFT → sidebar opens, focus lands on "Home" (item 3 of 9)
+     * 3. DPAD_UP → focus moves to "Search" (item 2)
+     * 4. DPAD_CENTER → search keyboard appears
+     * 5. Type via typeDisney7Keyboard() (7-col layout: a-g, h-n, o-u, v-z+1-2, 3-9, 0)
+     * 6. RIGHT×(7-endCol) → jumps from keyboard to results panel
+     * 7. DPAD_DOWN + DPAD_CENTER → first result selected
+     *
+     * SEASON/EPISODE (unchanged — verified working March 2026):
+     * - DOWN×1 → season tabs, RIGHT×(season-1), CENTER, DOWN×1, DOWN×(episode-1), CENTER
      */
     private suspend fun launchDisneyPlusWithSearch(searchQuery: String, season: Int, episode: Int) {
         Log.i(TAG, "Disney+: Search mode for '$searchQuery' S${season}E${episode}")
         // NOTE: startActivity already called in performLaunch() (needsPreLaunch=true).
         Log.i(TAG, "Disney+: Waiting 30s for cold start...")
         delay(30000)
+        if (checkAborted()) return
 
         // Profile bypass
         val pin = getDisneyPin()
@@ -579,21 +759,46 @@ class ContentLaunchService : Service() {
             delay(8000)
         }
 
-        // Open search
-        Log.i(TAG, "Disney+: Opening search")
-        sendKey(KeyEvent.KEYCODE_SEARCH, "D+ search key")
-        delay(3000)
+        if (checkAborted()) return
 
-        // Type the show name
-        Log.i(TAG, "Disney+: Typing '$searchQuery'")
-        typeTextViaAdb(searchQuery)
-        delay(4000)
+        // Open search via sidebar (KEYCODE_SEARCH opens Google Gemini — do NOT use)
+        // Disney+ sidebar: UP (to "For You" tab) → LEFT (sidebar, lands on Home=item3) → UP (Search=item2) → CENTER
+        Log.i(TAG, "Disney+: Opening search via sidebar")
+        sendKey(KeyEvent.KEYCODE_DPAD_UP, "D+ up to top nav")
+        delay(800)
+        sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "D+ left to sidebar")
+        delay(800)
+        sendKey(KeyEvent.KEYCODE_DPAD_UP, "D+ up to Search item")
+        delay(500)
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ open search")
+        delay(3000)  // Wait for search keyboard to fully appear
 
-        // Navigate to first result and select it
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ to results")
+        if (checkAborted()) return
+
+        // Type show name via 7-col DPAD keyboard
+        // typeTextViaAdb() DOES NOT WORK — Disney+ has no EditText for the search field.
+        // typeDisney7Keyboard() navigates to each key with DPAD and presses CENTER.
+        Log.i(TAG, "Disney+: Typing '$searchQuery' via 7-col keyboard")
+        val queryToType = searchQuery.lowercase().filter { it.isLetterOrDigit() }.take(7)
+        val (_, endCol) = typeDisney7Keyboard(queryToType)
+        delay(2000)  // Wait for search results to populate
+
+        if (checkAborted()) return
+
+        // RIGHT×(7-endCol) jumps from keyboard into the results panel.
+        // Keyboard has 7 columns (col 0-6). After the last col, RIGHT enters results.
+        val rightsToResults = (7 - endCol).coerceAtLeast(1)
+        Log.i(TAG, "Disney+: RIGHT×$rightsToResults to results panel")
+        repeat(rightsToResults) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "D+ to results"); delay(200) }
+        delay(800)
+
+        // Navigate down to first show result and select it
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ to first result")
         delay(600)
-        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ select first result")
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ select show")
         delay(6000)
+
+        if (checkAborted()) return
 
         // Show page layout:
         //   [Hero image / Play button]  ← initial focus after search result opens
@@ -614,6 +819,8 @@ class ContentLaunchService : Service() {
         }
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ select season")
         delay(3000)  // Wait for episode list to reload for selected season
+
+        if (checkAborted()) return
 
         // DOWN×1 → Season tabs → Episode 1 in episode list
         Log.i(TAG, "Disney+: Navigating to Episode $episode")
@@ -654,46 +861,65 @@ class ContentLaunchService : Service() {
     }
 
     /**
-     * PARAMOUNT+ — Search + play show (starts from "continue watching" episode)
+     * PARAMOUNT+ — Search + play show
      *
-     * NAVIGATION DISCOVERY (tested March 2026 on Onn Google TV):
-     * - Paramount+ uses Compose-based UI. DPAD navigation is limited.
-     * - KEYCODE_SEARCH (84) opens Google's Katniss voice assistant (NOT P+ search).
-     *   Katniss blocks all subsequent DPAD presses and cannot accept typed text.
-     *   FIX: Use "input tap 62 274" to open P+'s own in-app search sidebar.
+     * NAVIGATION DISCOVERY (re-tested March 2026, after P+ app update):
+     * - After profile bypass, P+ lands on "featured content" hero screen (WATCH TRAILER focused).
+     * - The old left sidebar at x=28-124 NO LONGER exists on this screen.
+     * - FIX: Press BACK → goes to browse/grid screen where the sidebar IS present at x=28-124.
+     * - Search icon tap: (62, 250) — confirmed opening the search keyboard.
+     *   Old coordinates (62, 274) were below the search icon after the app update.
+     * - After tapping: DPAD_DOWN once activates keyboard focus (focus lands on 'a' at row 0, col 0).
+     * - Keyboard: 6-col layout (typePvKeyboard). typeTextViaAdb() DOES NOT WORK (no EditText).
      *
-     * SEARCH NAVIGATION PATH (verified with ADB/UIAutomator):
-     * 1. Tap (62, 274) → P+'s in-app search opens, keyboard focus at 'a' key
-     * 2. input text <show name> → types into search field, results appear
-     * 3. RIGHT×6 from 'a' key → navigates to the Live TV card in results panel
-     * 4. DOWN×1 → moves to the first VOD result card (the show)
-     * 5. CENTER → VideoPlayerActivity launches (always plays "continue watching" episode)
+     * SEARCH NAVIGATION PATH (verified with ADB/UIAutomator, March 2026):
+     * 1. Profile bypass (CENTER) → hero screen
+     * 2. BACK → browse/grid screen (sidebar visible)
+     * 3. input tap 62 250 → search keyboard appears
+     * 4. DPAD_DOWN → keyboard focus activates at 'a' (row 0, col 0)
+     * 5. typePvKeyboard(query) → DPAD key-by-key navigation + CENTER per character
+     * 6. RIGHT×(6-endCol) → results panel
+     * 7. DOWN×1, CENTER → open show detail
+     * 8. CENTER → WATCH NOW / RESUME → VideoPlayerActivity
      *
-     * NOTE: Specific season/episode selection is NOT supported for Paramount+.
-     * The P+ Compose UI doesn't expose season/episode controls via DPAD from
-     * search results. The show always starts from the last-watched episode.
-     * Season/episode params are accepted but ignored.
+     * NOTE: Specific season/episode selection is not supported for P+.
+     * Season/episode params are accepted but ignored — show plays from last-watched position.
      */
     private suspend fun launchParamountWithSearch(searchQuery: String, season: Int, episode: Int) {
-        Log.i(TAG, "Paramount+: Search mode for '$searchQuery' (S${season}E${episode} — will play continue-watching)")
+        Log.i(TAG, "Paramount+: Search mode for '$searchQuery' (S${season}E${episode})")
         // NOTE: startActivity already called in performLaunch() (needsPreLaunch=true).
-        Log.i(TAG, "Paramount+: Waiting 20s for cold start...")
-        delay(20000)
+        Log.i(TAG, "Paramount+: Waiting 30s for cold start (React Native)...")
+        delay(30000)
+        if (checkAborted()) return
 
-        // After a force-stop, P+ always shows "Who's Watching?" profile selection first.
-        // Press CENTER to select the default (first) profile, then wait for home screen to load.
+        // Profile bypass: after cold start, P+ shows "Who's Watching?" — CENTER selects first profile
         Log.i(TAG, "Paramount+: Selecting profile")
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ profile select")
-        delay(8000)  // Wait for home screen to fully load after profile selection
+        delay(10000)  // Wait for home screen to load (React Native apps are slow)
 
-        // Open P+'s own in-app search via sidebar tap at (62, 274).
-        // NOTE: KEYCODE_SEARCH (84) opens Google Katniss voice assistant instead — do NOT use it.
-        Log.i(TAG, "Paramount+: Tapping search icon in sidebar")
-        sendShell("input tap 62 274")
-        delay(3000)  // Wait for search UI + keyboard to fully appear
+        if (checkAborted()) return
 
-        // Clear any stray characters (e.g., 'a' typed by the tap landing near keyboard focus)
-        // Send DEL×10 to ensure the field is empty before typing our search term.
+        // After profile, we're on the featured/hero screen (WATCH TRAILER focused).
+        // The search sidebar is NOT accessible from this screen.
+        // Press BACK to go to the browse/grid screen where the sidebar IS accessible.
+        Log.i(TAG, "Paramount+: Pressing BACK to go to browse screen (sidebar access)")
+        sendKey(KeyEvent.KEYCODE_BACK, "P+ back to browse screen")
+        delay(2000)
+
+        // Open P+'s in-app search by tapping the search icon in the left sidebar.
+        // Coordinates (62, 250) verified via uiautomator dump, March 2026.
+        // NOTE: KEYCODE_SEARCH (84) opens Google Katniss — do NOT use it.
+        // NOTE: Old coordinates (62, 274) no longer work after P+ app update.
+        Log.i(TAG, "Paramount+: Tapping search icon at (62, 250)")
+        sendShell("input tap 62 250")
+        delay(3000)
+
+        // Press DPAD_DOWN once to activate keyboard focus.
+        // After the tap, no key has focus yet. One DOWN press lands focus on 'a' (row 0, col 0).
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ activate keyboard focus")
+        delay(500)
+
+        // Clear any stray characters in the search field
         Log.i(TAG, "Paramount+: Clearing search field (DEL×10)")
         repeat(10) {
             sendShell("input keyevent ${KeyEvent.KEYCODE_DEL}")
@@ -701,39 +927,43 @@ class ContentLaunchService : Service() {
         }
         delay(300)
 
-        // Type the search query. After typing, 'a' key remains focused.
-        Log.i(TAG, "Paramount+: Typing '$searchQuery'")
-        typeTextViaAdb(searchQuery)
-        delay(3000)  // Wait for search results to load in the right panel
+        if (checkAborted()) return
 
-        // Navigate from 'a' key (keyboard row 1) to the results panel:
-        // RIGHT×6: a→b→c→d→e→f→(jumps to Live TV card in results panel at x=642)
-        Log.i(TAG, "Paramount+: Navigating RIGHT to results panel")
-        repeat(6) {
+        // Type show name via DPAD keyboard navigation.
+        // P+ uses a 6-col grid keyboard — same layout as typePvKeyboard().
+        // typeTextViaAdb() DOES NOT WORK here — P+ search keyboard has no standard EditText.
+        val queryToType = searchQuery.lowercase().filter { it.isLetterOrDigit() }.take(6)
+        Log.i(TAG, "Paramount+: Typing '$queryToType' via keyboard nav")
+        val (_, endCol) = typePvKeyboard(queryToType)
+        delay(3000)
+
+        if (checkAborted()) return
+
+        // RIGHT×(6-endCol) to jump from keyboard to results panel
+        val rightsToResults = (6 - endCol).coerceAtLeast(1)
+        Log.i(TAG, "Paramount+: RIGHT×$rightsToResults to results panel")
+        repeat(rightsToResults) {
             sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "P+ right to results")
             delay(200)
         }
         delay(500)
 
-        // DOWN×1: Live TV card → first VOD result card (the show)
+        // DOWN×1 to first show card, CENTER to open show detail
         sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ down to show card")
         delay(500)
-
-        // CENTER: Opens the show/episode detail page (ContentDetailsActivity)
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ select show")
-        delay(6000)  // Wait for ContentDetailsActivity to load
+        delay(6000)
 
-        // Press CENTER again to click "WATCH NOW" on the detail page → launches VideoPlayerActivity.
-        // If we landed directly on VideoPlayerActivity instead, CENTER just shows player controls
-        // and MEDIA_PLAY immediately resumes — no harm done either way.
+        if (checkAborted()) return
+
+        // Press CENTER on "WATCH NOW" / "RESUME" button to start playback
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ press WATCH NOW")
-        delay(4000)  // Wait for video to start loading
+        delay(4000)
 
-        // Force play in case video hasn't auto-started
         sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "P+ force play")
         delay(3000)
 
-        Log.i(TAG, "Paramount+: Done — playing '$searchQuery' (continue watching)")
+        Log.i(TAG, "Paramount+: Done — playing '$searchQuery'")
     }
 
     /**
@@ -769,6 +999,8 @@ class ContentLaunchService : Service() {
         Log.i(TAG, "Prime Video: Waiting 18s for cold start...")
         delay(18000)
 
+        if (checkAborted()) return
+
         // Open search via sidebar navigation.
         // NOTE: KEYCODE_SEARCH (84) opens Google Katniss voice assistant on this device — do NOT use.
         Log.i(TAG, "Prime Video: Opening search via sidebar (DPAD_LEFT + UP + CENTER)")
@@ -785,6 +1017,8 @@ class ContentLaunchService : Service() {
         Log.i(TAG, "Prime Video: Typing '$queryToType' via keyboard navigation")
         val (_, endCol) = typePvKeyboard(queryToType)
         delay(1500)
+
+        if (checkAborted()) return
 
         // Navigate from keyboard to suggestion chips row.
         // From keyboard column C, RIGHT×(6-C) jumps past the keyboard into the results panel.
@@ -805,20 +1039,30 @@ class ContentLaunchService : Service() {
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PV open show")
         delay(5000)
 
-        // Show page layout on Prime Video (React Native, Onn Google TV):
-        //   [Resume / Watch button]  ← initial focus
-        //   [Season X  ▾]  ← Season dropdown button (one row below Resume)
-        //   [Episode cards: E1  E2  E3 ...]  ← horizontal row below season dropdown
+        if (checkAborted()) return
 
-        // DOWN×1 → Resume/Watch button → Season dropdown button
-        Log.i(TAG, "Prime Video: Navigating to Season dropdown")
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV to season dropdown")
+        // SHOW PAGE LAYOUT (Prime Video, Onn Google TV):
+        //   [Watch Now / Resume]   ← initial focus (row 1)
+        //   [Season X ▾ dropdown]  ← row 2
+        //   [Episode cards row]    ← row 3+
+        //
+        // FIX: Old code used DOWN×1 to reach season dropdown, but some shows have extra
+        // rows (subscription prompts, "Add channel" buttons) between Resume and the dropdown.
+        // New approach: DOWN×3 to navigate past any subscription rows into episode area,
+        // then UP×1 back up to the Season dropdown button (verified path from docstring).
+
+        Log.i(TAG, "Prime Video: Navigating to Season dropdown (DOWN×3, UP×1)")
+        repeat(3) {
+            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV skip to episode area")
+            delay(500)
+        }
+        sendKey(KeyEvent.KEYCODE_DPAD_UP, "PV up to season dropdown")
         delay(600)
 
         // Open season dropdown
         Log.i(TAG, "Prime Video: Opening season dropdown")
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PV open season dropdown")
-        delay(1200)  // Dropdown animation takes ~1s
+        delay(1200)
 
         // Scroll UP×15 to safely reach Season 1 in the dropdown list
         Log.i(TAG, "Prime Video: Scrolling to Season 1 in dropdown")
@@ -837,12 +1081,17 @@ class ContentLaunchService : Service() {
             }
         }
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PV select season")
-        delay(2500)  // Wait for episode list to reload after season change
+        delay(2500)
 
-        // DOWN×1 → Season dropdown → Episode 1 card row
+        if (checkAborted()) return
+
+        // DOWN×2 → Season dropdown button → Episode 1 card row
+        // (DOWN×2 rather than DOWN×1 to reliably reach the episode cards row)
         Log.i(TAG, "Prime Video: Navigating to Episode $episode")
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV to episode row")
-        delay(600)
+        repeat(2) {
+            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV to episode row")
+            delay(500)
+        }
 
         // Navigate RIGHT to target episode (episodes are horizontal)
         if (episode > 1) {
@@ -904,6 +1153,60 @@ class ContentLaunchService : Service() {
             else if (colDiff < 0) repeat(-colDiff) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT,  "PV kbd← '$ch'"); delay(200) }
 
             sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PV type '$ch'")
+            delay(300)
+
+            curRow = target.row
+            curCol = target.col
+        }
+
+        return Pair(curRow, curCol)
+    }
+
+    /**
+     * Navigate Disney+'s on-screen keyboard and type a string letter by letter.
+     *
+     * Keyboard layout (verified March 2026, Onn Google TV, Disney+ app):
+     *   Row 0: a  b  c  d  e  f  g   (7 columns)
+     *   Row 1: h  i  j  k  l  m  n
+     *   Row 2: o  p  q  r  s  t  u
+     *   Row 3: v  w  x  y  z  1  2
+     *   Row 4: 3  4  5  6  7  8  9
+     *   Row 5: 0
+     *
+     * Starting position: row=0, col=0 ('a').
+     * Returns (row, col) of the last key pressed.
+     * Caller uses (7 - endCol) RIGHT presses to reach the results panel.
+     *
+     * NOTE: typeTextViaAdb() does NOT work on Disney+ (no EditText in search field).
+     */
+    private suspend fun typeDisney7Keyboard(text: String): Pair<Int, Int> {
+        data class Pos(val row: Int, val col: Int)
+
+        val charMap = mapOf(
+            'a' to Pos(0,0), 'b' to Pos(0,1), 'c' to Pos(0,2), 'd' to Pos(0,3), 'e' to Pos(0,4), 'f' to Pos(0,5), 'g' to Pos(0,6),
+            'h' to Pos(1,0), 'i' to Pos(1,1), 'j' to Pos(1,2), 'k' to Pos(1,3), 'l' to Pos(1,4), 'm' to Pos(1,5), 'n' to Pos(1,6),
+            'o' to Pos(2,0), 'p' to Pos(2,1), 'q' to Pos(2,2), 'r' to Pos(2,3), 's' to Pos(2,4), 't' to Pos(2,5), 'u' to Pos(2,6),
+            'v' to Pos(3,0), 'w' to Pos(3,1), 'x' to Pos(3,2), 'y' to Pos(3,3), 'z' to Pos(3,4),
+            '1' to Pos(3,5), '2' to Pos(3,6),
+            '3' to Pos(4,0), '4' to Pos(4,1), '5' to Pos(4,2), '6' to Pos(4,3), '7' to Pos(4,4), '8' to Pos(4,5), '9' to Pos(4,6),
+            '0' to Pos(5,0)
+        )
+
+        var curRow = 0
+        var curCol = 0
+
+        for (ch in text) {
+            val target = charMap[ch] ?: continue  // Skip unmapped chars
+
+            val rowDiff = target.row - curRow
+            if (rowDiff > 0) repeat(rowDiff)    { sendKey(KeyEvent.KEYCODE_DPAD_DOWN,  "D+ kbd↓ '$ch'"); delay(200) }
+            else if (rowDiff < 0) repeat(-rowDiff) { sendKey(KeyEvent.KEYCODE_DPAD_UP,   "D+ kbd↑ '$ch'"); delay(200) }
+
+            val colDiff = target.col - curCol
+            if (colDiff > 0) repeat(colDiff)    { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "D+ kbd→ '$ch'"); delay(200) }
+            else if (colDiff < 0) repeat(-colDiff) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT,  "D+ kbd← '$ch'"); delay(200) }
+
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ type '$ch'")
             delay(300)
 
             curRow = target.row
@@ -1171,6 +1474,15 @@ class ContentLaunchService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         serviceScope.cancel()
+        try { unregisterReceiver(homeReceiver) } catch (_: Exception) {}
         Log.i(TAG, "ContentLaunchService destroyed")
+    }
+
+    /**
+     * Returns true if the user pressed HOME (or Recents) — caller should immediately return.
+     */
+    private fun checkAborted(): Boolean {
+        if (homePressed) Log.i(TAG, "Navigation aborted: HOME was pressed")
+        return homePressed
     }
 }
