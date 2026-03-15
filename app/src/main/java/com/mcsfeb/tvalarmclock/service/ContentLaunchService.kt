@@ -260,43 +260,34 @@ class ContentLaunchService : Service() {
     }
 
     /**
-     * SLING TV — Search mode for both live channels and VOD shows.
+     * SLING TV — Search mode for VOD shows.
      *
      * FIXED March 2026:
-     * - Do NOT press CENTER on home screen — it clicks "recently viewed" content
-     *   and sends the user into random show pages (the root cause of the broken navigation).
+     * - Do NOT press CENTER on home screen — it clicks "recently viewed" content.
      * - Go directly to nav bar after cold start (DPAD_UP), then navigate to Search.
-     *
-     * LIVE CHANNELS:
-     * Search the channel name (e.g. "ESPN", "CNN") → select result → CENTER → MEDIA_PLAY.
-     * Guide navigation is not used because Sling is React Native (uiautomator returns
-     * no usable data — channel positions cannot be reliably determined).
-     *
-     * VOD SHOWS:
-     * Search show name → select result → season/episode navigation → play.
      *
      * SLING NAV BAR (opened by DPAD_UP):
      * Layout: [My TV] [Guide] [DVR] [On Demand] [Search]
      * LEFT×10 (safe overshoot) → My TV (leftmost). Then RIGHT×4 → Search.
-     *
-     * KEYBOARD: 6-col custom keyboard — same layout as Prime Video. typePvKeyboard() used.
      */
     private suspend fun launchSlingWithSearch(searchQuery: String, season: Int, episode: Int) {
-        // Strip the "LIVE:" prefix if present — both paths use Search
         val cleanQuery = searchQuery.removePrefix("LIVE:").removePrefix("live:").trim()
         val isLiveChannel = searchQuery.startsWith("LIVE:", ignoreCase = true)
 
-        Log.i(TAG, "Sling: query='$cleanQuery' isLive=$isLiveChannel S${season}E${episode}")
+        if (isLiveChannel) {
+            // Live channels use GUIDE navigation, not search
+            launchSlingGuideChannel(cleanQuery)
+            return
+        }
+
+        Log.i(TAG, "Sling: VOD search for '$cleanQuery' S${season}E${episode}")
         Log.i(TAG, "Sling: Waiting 35s for cold start (React Native)...")
         delay(35000)
         if (checkAborted()) return
 
-        // DO NOT press CENTER here — it clicks "recently viewed" content on the home screen
-        // and sends navigation into a completely wrong state.
-        // Instead, go directly to the nav bar.
+        // DO NOT press CENTER — clicks "recently viewed" content
 
         // ── OPEN NAV BAR ──
-        // DPAD_UP from home screen opens the nav bar at the top.
         Log.i(TAG, "Sling: Opening nav bar (DPAD_UP)")
         sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling open nav bar")
         delay(3000)
@@ -327,34 +318,138 @@ class ContentLaunchService : Service() {
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling select result")
         delay(5000)
 
-        if (isLiveChannel) {
-            // Live channel: CENTER already selected the channel, MEDIA_PLAY starts live stream
-            sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling start live channel")
-            delay(3000)
-        } else {
-            // VOD: navigate to season/episode
-            if (season > 1 || episode > 1) {
-                sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Sling to episode area")
-                delay(600)
-                if (season > 1) {
-                    repeat(season - 1) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling season→"); delay(350) }
-                }
-                sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling select season")
-                delay(1500)
-                sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Sling to episodes")
-                delay(600)
-                if (episode > 1) {
-                    repeat(episode - 1) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling episode→"); delay(300) }
-                }
+        // VOD: navigate to season/episode
+        if (season > 1 || episode > 1) {
+            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Sling to episode area")
+            delay(600)
+            if (season > 1) {
+                repeat(season - 1) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling season→"); delay(350) }
             }
-            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling play episode")
-            delay(4000)
-            sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling force play")
-            delay(3000)
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling select season")
+            delay(1500)
+            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Sling to episodes")
+            delay(600)
+            if (episode > 1) {
+                repeat(episode - 1) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling episode→"); delay(300) }
+            }
         }
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling play episode")
+        delay(4000)
+        sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling force play")
+        delay(3000)
 
         Log.i(TAG, "Sling: Done")
     }
+
+    /**
+     * SLING TV — Guide navigation for live channels.
+     *
+     * Opens the Guide from the nav bar, then scrolls to the target channel.
+     * Each channel has a known guide position (row number from top).
+     *
+     * GUIDE NAVIGATION:
+     * 1. DPAD_UP → nav bar
+     * 2. LEFT×10 → My TV (leftmost), RIGHT×1 → Guide
+     * 3. CENTER → opens Guide
+     * 4. UP×50 → scroll to very top of guide (safe overshoot)
+     * 5. DOWN×(channelPosition) → target channel
+     * 6. CENTER → select channel → starts live playback
+     */
+    private suspend fun launchSlingGuideChannel(channelName: String) {
+        Log.i(TAG, "Sling GUIDE: Navigating to live channel '$channelName'")
+        Log.i(TAG, "Sling: Waiting 35s for cold start (React Native)...")
+        delay(35000)
+        if (checkAborted()) return
+
+        // DO NOT press CENTER — clicks "recently viewed" content
+
+        // ── OPEN GUIDE VIA NAV BAR ──
+        Log.i(TAG, "Sling: Opening nav bar (DPAD_UP)")
+        sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling open nav bar")
+        delay(3000)
+        if (checkAborted()) return
+
+        // Navigate to Guide: LEFT×10 → My TV (leftmost), then RIGHT×1 → Guide
+        repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Sling nav←"); delay(300) }
+        delay(500)
+        sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling nav→ Guide"); delay(400)
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling open Guide")
+        delay(5000)  // Guide takes time to load
+        if (checkAborted()) return
+
+        // Guide is now open. Scroll to top first, then down to channel.
+        Log.i(TAG, "Sling GUIDE: Scrolling to top")
+        repeat(50) { sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling guide↑"); delay(150) }
+        delay(1000)
+
+        // Look up channel position in guide
+        val guidePos = slingGuidePositions[channelName.lowercase()] ?: run {
+            // Unknown channel — try searching for it instead
+            Log.w(TAG, "Sling: Channel '$channelName' not in guide map. Trying search fallback.")
+            // Fall back to search approach
+            sendKey(KeyEvent.KEYCODE_BACK, "Sling back from guide"); delay(2000)
+            sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling open nav bar"); delay(3000)
+            repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Sling nav←"); delay(300) }
+            delay(500)
+            repeat(4) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling nav→"); delay(400) }
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling open Search"); delay(4000)
+            val queryToType = channelName.lowercase().filter { it.isLetterOrDigit() }.take(12)
+            typePvKeyboard(queryToType)
+            delay(2500)
+            repeat(6) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling to results"); delay(250) }
+            delay(500)
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling select result"); delay(3000)
+            sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling start channel"); delay(3000)
+            return
+        }
+
+        Log.i(TAG, "Sling GUIDE: DOWN×$guidePos to '$channelName'")
+        repeat(guidePos) {
+            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Sling guide↓")
+            delay(250)
+        }
+        delay(500)
+
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling select channel")
+        delay(3000)
+        sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling start live channel")
+        delay(3000)
+
+        Log.i(TAG, "Sling GUIDE: Done — playing '$channelName'")
+    }
+
+    /**
+     * Sling guide channel positions — row number from the TOP of the guide.
+     * These positions depend on the user's Sling package and customization.
+     * NEEDS USER VERIFICATION — test each channel and adjust positions.
+     *
+     * Default order is based on Sling Blue+Orange combined package (typical US setup).
+     * Positions are 0-indexed from the top of the guide after scrolling all the way up.
+     */
+    private val slingGuidePositions: Map<String, Int> = mapOf(
+        // News
+        "cnn" to 0, "fox news" to 1, "msnbc" to 2, "cnbc" to 3,
+        "hln" to 4, "bbc news" to 5, "newsnation" to 6,
+        // Sports
+        "espn" to 7, "espn2" to 8, "tnt sports" to 9,
+        "fs1 (fox sports 1)" to 10, "nfl network" to 11,
+        "nba tv" to 12, "mlb network" to 13, "golf channel" to 14,
+        // Entertainment
+        "amc" to 15, "tbs" to 16, "usa network" to 17,
+        "fx" to 18, "comedy central" to 19, "bravo" to 20,
+        "e!" to 21, "syfy" to 22,
+        // Kids
+        "cartoon network" to 23, "nickelodeon" to 24,
+        "disney channel" to 25, "disney junior" to 26,
+        // Movies
+        "tcm (turner classic movies)" to 27,
+        // Lifestyle
+        "hgtv" to 28, "food network" to 29, "tlc" to 30,
+        "discovery channel" to 31, "history channel" to 32,
+        "a&e" to 33, "lifetime" to 34,
+        // Music
+        "mtv" to 35, "vh1" to 36
+    )
 
     /**
      * HBO MAX (Max) — Normal launch + profile bypass
@@ -572,21 +667,20 @@ class ContentLaunchService : Service() {
 
         // Profile bypass (cold start shows profile picker; CENTER selects first profile)
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Hulu profile")
-        delay(12000)  // Increased from 8s: Hulu home screen takes longer to respond after profile
+        delay(12000)  // Hulu home screen takes long to respond after profile
 
         if (checkAborted()) return
 
-        // Open search via sidebar (KEYCODE_SEARCH opens Katniss — do NOT use)
-        // FIX: One DPAD_LEFT may only move within the content area, not enter the sidebar.
-        // Press LEFT twice to guarantee we're inside the sidebar before pressing UP.
-        // Then press UP×5 — Search is the topmost sidebar item; extra UP presses at the
-        // top are harmless (just stay on the topmost item without exiting).
-        Log.i(TAG, "Hulu: Opening search via sidebar (LEFT×2 + UP×5)")
-        sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Hulu sidebar step 1"); delay(1500)
-        sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Hulu sidebar step 2"); delay(2000)
-        repeat(5) { sendKey(KeyEvent.KEYCODE_DPAD_UP, "Hulu search↑"); delay(400) }
+        // Open search via sidebar — same pattern as HBO Max (LEFT→UP→CENTER).
+        // KEYCODE_SEARCH opens Google Katniss/Gemini — do NOT use.
+        // LEFT opens the sidebar with "Home" focused, UP moves to "Search" at top.
+        Log.i(TAG, "Hulu: Opening search via sidebar (LEFT→UP→CENTER)")
+        sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Hulu to sidebar")
+        delay(1500)
+        sendKey(KeyEvent.KEYCODE_DPAD_UP, "Hulu focus search")
+        delay(500)
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Hulu open search")
-        delay(7000)  // Hulu search keyboard is very slow to load
+        delay(5000)  // Hulu search keyboard is slow to load
 
         if (checkAborted()) return
 
@@ -793,50 +887,57 @@ class ContentLaunchService : Service() {
         //
         // KEY: Seasons are a VERTICAL sidebar on the LEFT, NOT horizontal tabs.
 
+        // ── SEASON / EPISODE NAVIGATION ──
+        // Disney+ show page layout (verified March 2026):
+        //   [PLAY button / Hero]                      ← initial focus
+        //   [EPISODES | SUGGESTED | DETAILS tabs]     ← content tab row
+        //   [Episode list (right) | Season sidebar (left)]
+        //
+        // IMPORTANT: Seasons are a VERTICAL sidebar on the LEFT.
+        // After pressing DOWN twice and LEFT, Season 1 is ALREADY focused.
+        // DO NOT press UP×10 — it overshoots past the sidebar into the tab row above!
+
         // DOWN×1 → PLAY button → EPISODES tab
-        Log.i(TAG, "Disney+: DOWN to EPISODES tab")
+        Log.i(TAG, "Disney+: Navigating to S${season}E${episode}")
         sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ to EPISODES tab")
-        delay(800)
+        delay(1000)
 
         // DOWN×1 → EPISODES tab → Episode 1 card (right side, Season 1)
         sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ to Episode 1")
-        delay(800)
+        delay(1000)
 
         // LEFT → Episode card → Season sidebar (Season 1 focused)
         Log.i(TAG, "Disney+: LEFT to season sidebar")
         sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "D+ to season sidebar")
-        delay(800)
+        delay(1000)
 
-        // UP×10 → Safely scroll to Season 1 (top of sidebar; extra UP presses are harmless)
-        Log.i(TAG, "Disney+: UP×10 to reach Season 1")
-        repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_UP, "D+ season↑ safe"); delay(200) }
-        delay(500)
-
-        // DOWN×(season-1) → Navigate to target season
-        Log.i(TAG, "Disney+: Navigating to Season $season")
+        // Season 1 is already focused after LEFT. Navigate DOWN×(season-1) to target.
+        // NO UP×10 — that overshoots past the sidebar into the EPISODES/SUGGESTED tabs!
+        Log.i(TAG, "Disney+: Navigating to Season $season (DOWN×${season - 1})")
         if (season > 1) {
             repeat(season - 1) {
                 sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ season↓")
-                delay(350)
+                delay(500)
             }
         }
 
         // CENTER → Select the target season (episodes reload for that season)
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ select season")
-        delay(3000)  // Wait for episode list to reload
+        delay(4000)  // Wait for episode list to reload (increased from 3s)
 
         if (checkAborted()) return
 
-        // RIGHT → Season sidebar → Episode 1 of selected season (right side)
-        Log.i(TAG, "Disney+: RIGHT to episodes, then DOWN to Episode $episode")
-        sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "D+ to episode list")
-        delay(800)
+        // DOWN → Into episode cards (episodes are below the season selector)
+        // After CENTER, focus stays on the season. DOWN moves into the episode area.
+        Log.i(TAG, "Disney+: DOWN to episodes, then DOWN×${episode - 1} to Episode $episode")
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ to episode list")
+        delay(1000)
 
         // DOWN×(episode-1) → Target episode (episodes are stacked vertically)
         if (episode > 1) {
             repeat(episode - 1) {
                 sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ episode↓")
-                delay(350)
+                delay(500)
             }
         }
         delay(600)
@@ -904,29 +1005,24 @@ class ContentLaunchService : Service() {
         delay(30000)
         if (checkAborted()) return
 
-        // Profile bypass: CENTER selects first profile if "Who's Watching?" is shown.
-        // If no profile picker (single-profile accounts), CENTER may select featured content.
-        // Either way, we'll navigate to sidebar next, so it's harmless.
-        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ profile/dismiss")
-        delay(8000)
+        // DO NOT press CENTER on cold start — single-profile accounts go straight to home,
+        // and CENTER clicks the featured/hero content, breaking all navigation.
+        // Instead, go directly to the sidebar.
 
         if (checkAborted()) return
 
-        // Navigate to sidebar: DOWN to ensure we're in the content area, then LEFT to sidebar
-        Log.i(TAG, "Paramount+: Navigating to sidebar")
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ focus content area")
-        delay(500)
+        // Navigate to sidebar: LEFT from home content area goes to sidebar
+        Log.i(TAG, "Paramount+: Navigating to sidebar (no CENTER press)")
         sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "P+ to sidebar")
-        delay(800)
+        delay(1000)
 
-        // UP×10 safely scrolls to topmost sidebar item (logo/profile area)
+        // UP×10 safely scrolls to topmost sidebar item (logo area)
         repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_UP, "P+ sidebar↑"); delay(200) }
         delay(500)
 
-        // DOWN×2 → Search icon (skip logo and profile items that sit above Search)
-        // VERIFIED: Search is item 1 at y≈226-298, two items below the topmost position.
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ sidebar↓ 1"); delay(300)
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ sidebar↓ 2 (Search)"); delay(300)
+        // DOWN×1 → Search icon (first interactive item below the logo at top)
+        // VERIFIED: Top=[72,47][276,143] (logo), DOWN×1=[72,112][253,208] (Search)
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ sidebar↓ 1 (Search)"); delay(300)
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ open search")
         delay(4000)
 
@@ -1070,23 +1166,19 @@ class ContentLaunchService : Service() {
 
         if (checkAborted()) return
 
-        // Prime Video sometimes auto-plays a trailer when opening a show page.
-        // Press BACK to ensure we're on the detail page, not a video preview.
-        // If already on detail page, BACK may navigate away — press DOWN to re-focus.
-        sendKey(KeyEvent.KEYCODE_BACK, "PV dismiss trailer if playing")
-        delay(2000)
+        // DO NOT press BACK — it navigates AWAY from the show page entirely,
+        // losing the show we just searched for. If a trailer auto-plays, DOWN
+        // navigation will still work to reach the season dropdown.
 
         // SHOW PAGE LAYOUT (Prime Video, subscription shows):
         //   [Play / Resume button]   ← initial focus
-        //   [Season X ▾ dropdown]    ← below (DOWN×1 or DOWN×2)
+        //   [Season X ▾ dropdown]    ← below (DOWN×1)
         //   [Episode cards row]      ← below dropdown (DOWN×1 from dropdown)
 
-        // Navigate to season dropdown — DOWN×2 to be safe (may need to skip subtitle/description row)
-        Log.i(TAG, "Prime Video: Navigating to Season dropdown (DOWN×2)")
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV down 1")
-        delay(600)
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV down 2 (season dropdown)")
-        delay(600)
+        // Navigate to season dropdown — DOWN×1 from hero/play button
+        Log.i(TAG, "Prime Video: Navigating to Season dropdown (DOWN×1)")
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV to season dropdown")
+        delay(800)
 
         // Open season dropdown
         Log.i(TAG, "Prime Video: Opening season dropdown")

@@ -112,7 +112,8 @@ fun ContentPickerScreen(
                         null -> "Pick a Streaming App"
                         else -> when (browseMode) {
                             null -> app.displayName
-                            BrowseMode.CHANNEL_GUIDE -> "${app.displayName} Channels"
+                            BrowseMode.CHANNEL_GUIDE -> if (app == StreamingApp.SLING_TV) "Sling Channel List"
+                                else "${app.displayName} Channels"
                             BrowseMode.SEARCH -> selectedShow?.title ?: "Search ${app.displayName}"
                             BrowseMode.MANUAL -> "Manual Entry"
                         }
@@ -190,8 +191,11 @@ fun ContentPickerScreen(
 
                     if (hasChannels) {
                         ModeCard(
-                            title = "Pick a Channel",
-                            description = "Browse live channels like ESPN, CNN, HGTV...",
+                            title = if (currentApp == StreamingApp.SLING_TV) "Channel List"
+                                    else "Pick a Channel",
+                            description = if (currentApp == StreamingApp.SLING_TV)
+                                "Pick a live channel — opens via Guide navigation."
+                            else "Browse live channels like ESPN, CNN, HGTV...",
                             color = AlarmBlue,
                             onClick = { browseMode = BrowseMode.CHANNEL_GUIDE }
                         )
@@ -267,16 +271,29 @@ fun ContentPickerScreen(
                         channels = allChannels,
                         app = currentApp,
                         onChannelPicked = { channel ->
-                            val channelId = ChannelGuide.getChannelId(channel, currentApp) ?: ""
-                            onContentSelected(
-                                StreamingContent(
-                                    app = currentApp,
-                                    contentId = channelId,
-                                    title = channel.name,
-                                    launchMode = if (channelId.isNotBlank()) LaunchMode.DEEP_LINK
-                                    else LaunchMode.APP_ONLY
+                            if (currentApp == StreamingApp.SLING_TV) {
+                                // Sling: use Guide navigation (SEARCH mode with "LIVE:" prefix)
+                                onContentSelected(
+                                    StreamingContent(
+                                        app = currentApp,
+                                        contentId = "",
+                                        title = channel.name,
+                                        launchMode = LaunchMode.SEARCH,
+                                        searchQuery = "LIVE:${channel.name}"
+                                    )
                                 )
-                            )
+                            } else {
+                                val channelId = ChannelGuide.getChannelId(channel, currentApp) ?: ""
+                                onContentSelected(
+                                    StreamingContent(
+                                        app = currentApp,
+                                        contentId = channelId,
+                                        title = channel.name,
+                                        launchMode = if (channelId.isNotBlank()) LaunchMode.DEEP_LINK
+                                        else LaunchMode.APP_ONLY
+                                    )
+                                )
+                            }
                         }
                     )
                 } else {
@@ -305,16 +322,29 @@ fun ContentPickerScreen(
                         channels = categoryChannels,
                         app = currentApp,
                         onChannelPicked = { channel ->
-                            val channelId = ChannelGuide.getChannelId(channel, currentApp) ?: ""
-                            onContentSelected(
-                                StreamingContent(
-                                    app = currentApp,
-                                    contentId = channelId,
-                                    title = channel.name,
-                                    launchMode = if (channelId.isNotBlank()) LaunchMode.DEEP_LINK
-                                    else LaunchMode.APP_ONLY
+                            if (currentApp == StreamingApp.SLING_TV) {
+                                // Sling: use Guide navigation (SEARCH mode with "LIVE:" prefix)
+                                onContentSelected(
+                                    StreamingContent(
+                                        app = currentApp,
+                                        contentId = "",
+                                        title = channel.name,
+                                        launchMode = LaunchMode.SEARCH,
+                                        searchQuery = "LIVE:${channel.name}"
+                                    )
                                 )
-                            )
+                            } else {
+                                val channelId = ChannelGuide.getChannelId(channel, currentApp) ?: ""
+                                onContentSelected(
+                                    StreamingContent(
+                                        app = currentApp,
+                                        contentId = channelId,
+                                        title = channel.name,
+                                        launchMode = if (channelId.isNotBlank()) LaunchMode.DEEP_LINK
+                                        else LaunchMode.APP_ONLY
+                                    )
+                                )
+                            }
                         }
                     )
                 }
