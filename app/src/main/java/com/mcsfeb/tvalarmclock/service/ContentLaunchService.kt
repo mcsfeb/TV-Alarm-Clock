@@ -264,100 +264,77 @@ class ContentLaunchService : Service() {
     }
 
     /**
-     * SLING TV — Search mode: VOD show search OR live channel guide navigation.
+     * SLING TV — Unified search mode for both live channels and VOD shows.
      *
      * HOW IT WORKS:
-     * - For live TV channels: Sling auto-plays the last channel. After that, DPAD_UP
-     *   opens Sling's interactive nav bar. Navigate RIGHT to "Guide" to pick a live channel.
-     * - For VOD shows: Navigate to "Search" in the nav bar, type the show, select it.
-     *
-     * SEARCH QUERY CONVENTION:
-     * - "LIVE: Fox News"  → guide mode, tunes to the named live channel
-     * - "Breaking Bad"    → VOD search mode
+     * UNIFIED SEARCH APPROACH (March 2026 redesign):
+     * Both live channels and VOD shows go through Sling's Search.
+     * - Live channels: search the channel name (e.g. "HGTV") → select result → MEDIA_PLAY
+     * - VOD shows: search the show name → select result → episode navigation
+     * Guide-based navigation was unreliable (channel order varies by subscription and React Native
+     * UI is opaque to uiautomator). Search is consistent for both use cases.
      *
      * SLING NAV BAR (opened by DPAD_UP from live TV):
-     * Typical layout: [My TV] [Guide] [DVR] [On Demand] [Search]
-     * After DPAD_UP from live TV, the nav bar appears. LEFT×4 reaches the leftmost item,
-     * then RIGHT×N to navigate to the desired section.
+     * Confirmed layout: [My TV] [Guide] [DVR] [On Demand] [Search]
+     * LEFT×10 (safe overshoot) → My TV (leftmost). Then RIGHT×4 → Search.
+     *
+     * KEYBOARD: Sling uses a 6-col custom keyboard — same as Prime Video. typePvKeyboard() used.
      */
     private suspend fun launchSlingWithSearch(searchQuery: String, season: Int, episode: Int) {
+        // Strip the legacy "LIVE:" prefix if present — both paths now use Search
+        val cleanQuery = searchQuery.removePrefix("LIVE:").removePrefix("live:").trim()
         val isLiveChannel = searchQuery.startsWith("LIVE:", ignoreCase = true)
-        val channelName = if (isLiveChannel) searchQuery.removePrefix("LIVE:").trim() else ""
 
-        Log.i(TAG, "Sling: Search mode — query='$searchQuery' season=$season episode=$episode")
+        Log.i(TAG, "Sling: query='$cleanQuery' isLive=$isLiveChannel S${season}E${episode}")
         Log.i(TAG, "Sling: Waiting 35s for cold start (React Native)...")
         delay(35000)
         if (checkAborted()) return
 
-        // Profile bypass
-        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling profile dismiss")
-        delay(100)
+        // Dismiss any startup overlay and ensure live TV is playing
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling profile/overlay dismiss")
+        delay(500)
         sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling force play")
-        delay(8000)  // Increased from 4s: Sling must be fully in playback before opening nav bar
+        delay(8000)  // Must be fully in playback before opening nav bar
         if (checkAborted()) return
 
+        // ── SEARCH PATH (both LIVE and VOD) ──
+        // Open nav bar via DPAD_UP from live TV playback
+        Log.i(TAG, "Sling: Opening nav bar (DPAD_UP)")
+        sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling open nav bar")
+        delay(3000)
+        if (checkAborted()) return
+
+        // Navigate to Search: LEFT×10 → leftmost (My TV), then RIGHT×4 → Search
+        repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Sling nav←"); delay(300) }
+        delay(500)
+        repeat(4) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling nav→"); delay(400) }
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling open Search")
+        delay(4000)
+        if (checkAborted()) return
+
+        // Type query via 6-col keyboard (same layout as Prime Video)
+        val queryToType = cleanQuery.lowercase().filter { it.isLetterOrDigit() }.take(12)
+        Log.i(TAG, "Sling: Typing '$queryToType'")
+        val (_, endCol) = typePvKeyboard(queryToType)
+        delay(2500)
+        if (checkAborted()) return
+
+        // RIGHT×(6-endCol) to jump from keyboard into results panel
+        val rightsToResults = (6 - endCol).coerceAtLeast(1)
+        Log.i(TAG, "Sling: RIGHT×$rightsToResults to results")
+        repeat(rightsToResults) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling to results"); delay(250) }
+        delay(500)
+
+        // Select first result
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling select result")
+        delay(5000)
+
         if (isLiveChannel) {
-            // ── LIVE CHANNEL MODE ──
-            // Open interactive nav bar via DPAD_UP
-            Log.i(TAG, "Sling: Opening nav bar (DPAD_UP) to reach Guide")
-            sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling open nav bar")
-            delay(2000)
-
-            // Navigate to Guide: LEFT×4 to go to leftmost item, then RIGHT×1 for Guide
-            repeat(4) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Sling nav←"); delay(300) }
-            delay(500)
-            sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling to Guide"); delay(300)
-            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling open Guide")
+            // Live channel: just press PLAY to start the live stream
+            sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling start live channel")
             delay(3000)
-            if (checkAborted()) return
-
-            // In Guide, find target channel by scrolling.
-            // Guide shows channels vertically. Scroll DOWN up to 30 rows looking for channel name.
-            // (Blind navigation — can't verify channel name without accessibility dump)
-            Log.i(TAG, "Sling: Searching guide for channel '$channelName'")
-            // For now: 10 UP presses to go to top of guide, then rely on MEDIA_PLAY
-            repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling guide↑"); delay(200) }
-            delay(500)
-            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling tune to channel")
-            delay(2000)
-            sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling force play")
-            delay(3000)
-
         } else {
-            // ── VOD SEARCH MODE ──
-            // Open interactive nav bar via DPAD_UP
-            Log.i(TAG, "Sling: Opening nav bar (DPAD_UP) to reach Search")
-            sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling open nav bar")
-            delay(3000)  // Increased from 2s: nav bar animation needs time
-            if (checkAborted()) return
-
-            // Navigate to Search: LEFT×10 to guarantee leftmost (extra presses are safe),
-            // then RIGHT×4 to Search in a 5-item bar [My TV][Guide][DVR][On Demand][Search].
-            // If Guide is at RIGHT×1 (confirmed working in LIVE path), Search is at RIGHT×4.
-            repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Sling nav←"); delay(300) }
-            delay(500)
-            repeat(4) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling nav→"); delay(400) }
-            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling open Search")
-            delay(4000)  // Increased from 3s: Sling search is slow
-            if (checkAborted()) return
-
-            // Type show name via keyboard (Sling uses a 6-col layout like Prime Video)
-            val queryToType = searchQuery.lowercase().filter { it.isLetterOrDigit() }.take(5)
-            Log.i(TAG, "Sling: Typing '$queryToType'")
-            val (_, endCol) = typePvKeyboard(queryToType)
-            delay(2000)
-            if (checkAborted()) return
-
-            // RIGHT×(6-endCol) to jump to results
-            val rightsToResults = (6 - endCol).coerceAtLeast(1)
-            repeat(rightsToResults) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling to results"); delay(200) }
-            delay(500)
-
-            // Select first result
-            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling select show")
-            delay(5000)
-
-            // Navigate to season/episode
+            // VOD: navigate to season/episode
             if (season > 1 || episode > 1) {
                 sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Sling to episode area")
                 delay(600)
@@ -372,8 +349,7 @@ class ContentLaunchService : Service() {
                     repeat(episode - 1) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling episode→"); delay(300) }
                 }
             }
-
-            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling play")
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling play episode")
             delay(4000)
             sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling force play")
             delay(3000)
@@ -747,24 +723,27 @@ class ContentLaunchService : Service() {
         delay(30000)
         if (checkAborted()) return
 
-        // Profile bypass
+        // Profile bypass (only if PIN is set).
+        // VERIFIED March 2026: single-profile accounts skip the "Who's Watching?" screen entirely
+        // and land directly on the home screen after cold start. DO NOT send DPAD_CENTER on the
+        // home screen — it plays the featured content and breaks all subsequent navigation.
         val pin = getDisneyPin()
         if (pin.isNotEmpty()) {
             enterDisneyPinFromStartPosition(pin)
             delay(5000)
-        } else {
-            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ profile select")
-            delay(8000)
         }
+        // No CENTER press for single-profile accounts — already on home screen.
 
         if (checkAborted()) return
 
-        // Open search via sidebar (KEYCODE_SEARCH opens Google Gemini — do NOT use)
-        // Disney+ sidebar: UP (to "For You" tab) → LEFT (sidebar, lands on Home=item3) → UP (Search=item2) → CENTER
-        Log.i(TAG, "Disney+: Opening search via sidebar")
-        sendKey(KeyEvent.KEYCODE_DPAD_UP, "D+ up to top nav")
-        delay(800)
-        sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "D+ left to sidebar")
+        // Open search via sidebar
+        // VERIFIED March 2026 (live ADB dump confirmed):
+        //   From home content: DPAD_LEFT → sidebar "Home" (item 3 of 9)
+        //   UP×1 → sidebar "Search" (item 2 of 9)
+        //   CENTER → search keyboard opens, focus lands on 'a' (row 0, col 0)
+        // NOTE: The initial UP before LEFT was WRONG — it went to the top tab bar, not the sidebar.
+        Log.i(TAG, "Disney+: Opening search via sidebar (LEFT→UP→CENTER)")
+        sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "D+ left to sidebar (Home item)")
         delay(800)
         sendKey(KeyEvent.KEYCODE_DPAD_UP, "D+ up to Search item")
         delay(500)
@@ -773,27 +752,27 @@ class ContentLaunchService : Service() {
 
         if (checkAborted()) return
 
-        // Type show name via 7-col DPAD keyboard
-        // typeTextViaAdb() DOES NOT WORK — Disney+ has no EditText for the search field.
-        // typeDisney7Keyboard() navigates to each key with DPAD and presses CENTER.
+        // Type show name via 7-col DPAD keyboard.
+        // VERIFIED March 2026: keyboard opens with focus on 'a' (row 0, col 0).
+        // typeDisney7Keyboard() row-reset strategy is confirmed correct.
+        // Use up to 15 chars for specificity — 7 was too short and gave ambiguous results.
         Log.i(TAG, "Disney+: Typing '$searchQuery' via 7-col keyboard")
-        val queryToType = searchQuery.lowercase().filter { it.isLetterOrDigit() }.take(7)
+        val queryToType = searchQuery.lowercase().filter { it.isLetterOrDigit() }.take(15)
         val (_, endCol) = typeDisney7Keyboard(queryToType)
-        delay(3000)  // Wait for search results to populate (increased from 2s)
+        delay(3000)  // Wait for search results to populate
 
         if (checkAborted()) return
 
-        // RIGHT×(7-endCol)+2 jumps from keyboard into the results panel.
-        // typeDisney7Keyboard() always ends at row 0, so we're on the top row.
-        // +2 extra presses ensure we clear the keyboard boundary reliably.
-        val rightsToResults = (7 - endCol + 2).coerceAtLeast(3)
-        Log.i(TAG, "Disney+: RIGHT×$rightsToResults to results panel")
+        // Navigate from keyboard to first result.
+        // VERIFIED March 2026: keyboard is 7 cols (0-6). From endCol, pressing (7-endCol) RIGHT
+        // presses crosses remaining keyboard columns and lands on the FIRST result (col 1).
+        // No DOWN needed — we are already in the correct row for the top result.
+        val rightsToResults = (7 - endCol).coerceAtLeast(1)
+        Log.i(TAG, "Disney+: RIGHT×$rightsToResults to first result")
         repeat(rightsToResults) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "D+ to results"); delay(250) }
         delay(800)
 
-        // Navigate down to first show result and select it
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ to first result")
-        delay(600)
+        // Select the first result — no DOWN press needed (already on row 1 of results)
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ select show")
         delay(6000)
 
