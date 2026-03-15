@@ -74,10 +74,16 @@ class ContentLauncher(private val context: Context) {
                            identifiers["contentId"].isNullOrBlank().not()
         val useSearchNav = searchQuery.isNotBlank() && (seasonNumber > 0 || episodeNumber > 0) && !hasContentId
 
-        // Apps that always use normal launch (no reliable content-specific deep links):
-        // - Sling: live TV, auto-plays last channel. No episode search needed.
-        // - Disney+: deep links don't navigate to content reliably on TV app.
-        val alwaysNormalLaunch = setOf("com.sling", "com.disney.disneyplus")
+        // Apps that always use search/normal launch — deep links are unreliable on TV apps.
+        // Every app with a working search recipe belongs here.
+        val alwaysNormalLaunch = setOf(
+            "com.sling",                            // Sling: live TV + search
+            "com.disney.disneyplus",                // Disney+: search + DPAD keyboard
+            "com.hulu.livingroomplus",              // Hulu: search + DPAD keyboard
+            "com.cbs.ott",                          // Paramount+: search + sidebar nav
+            "com.amazon.amazonvideo.livingroom",    // Prime Video: search + DPAD keyboard
+            "com.wbd.stream"                        // HBO Max: search + ADB text input
+        )
 
         if (useSearchNav || packageName in alwaysNormalLaunch) {
             Log.i(TAG, "$packageName: Search/normal launch (query='$searchQuery' S$seasonNumber E$episodeNumber)")

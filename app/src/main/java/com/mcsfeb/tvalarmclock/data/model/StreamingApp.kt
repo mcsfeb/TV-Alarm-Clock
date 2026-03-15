@@ -78,9 +78,9 @@ enum class StreamingApp(
     SLING_TV(
         displayName = "Sling TV",
         packageName = "com.sling",
-        deepLinkFormat = "slingtv://watch.sling.com/watch/live?channelName={id}",
-        contentIdLabel = "Sling Channel Name",
-        description = "Channel name like 'Fox News', 'CNN', 'ESPN' (use the display name)",
+        deepLinkFormat = "",  // No deep links — uses Search (LIVE:channelname) or guide navigation
+        contentIdLabel = "Channel Name",
+        description = "Channel name like 'ESPN', 'CNN', 'HGTV' — searched via Sling's search",
         colorHex = 0xFF2563EB
     ),
 

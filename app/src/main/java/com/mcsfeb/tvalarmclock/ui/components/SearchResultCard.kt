@@ -19,7 +19,6 @@ import androidx.tv.material3.Surface
 import com.mcsfeb.tvalarmclock.data.model.ContentInfo
 import com.mcsfeb.tvalarmclock.data.model.MediaType
 import com.mcsfeb.tvalarmclock.data.model.StreamingApp
-import com.mcsfeb.tvalarmclock.data.remote.ContentIdMapper
 import com.mcsfeb.tvalarmclock.ui.theme.*
 
 /**
@@ -109,12 +108,12 @@ fun SearchResultCard(
                     }
                 }
             }
-            // Show launch mode indicator
-            val hasMapping = ContentIdMapper.getContentId(content.tmdbId, app) != null
+            // Launch mode indicator — all TV apps use Search (DPAD navigation).
+            // Deep links are unreliable on Android TV apps.
             Text(
-                if (hasMapping) "Direct Link" else "Search",
+                "Search",
                 fontSize = 12.sp,
-                color = if (hasMapping) AlarmActiveGreen else AlarmTeal
+                color = AlarmTeal
             )
         }
     }
