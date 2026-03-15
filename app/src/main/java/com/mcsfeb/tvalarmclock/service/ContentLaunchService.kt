@@ -704,14 +704,14 @@ class ContentLaunchService : Service() {
      * BUG FIX: KEYCODE_SEARCH opens Google Gemini (Katniss) on Google TV, NOT Disney+'s
      * own search. typeTextViaAdb() also fails — Disney+ uses a custom all-button keyboard.
      *
-     * SEARCH PATH (verified March 2026, Onn Google TV):
-     * 1. After home loads: DPAD_UP → top nav ("For You" tab)
-     * 2. DPAD_LEFT → sidebar opens, focus lands on "Home" (item 3 of 9)
-     * 3. DPAD_UP → focus moves to "Search" (item 2)
-     * 4. DPAD_CENTER → search keyboard appears
-     * 5. Type via typeDisney7Keyboard() (7-col layout: a-g, h-n, o-u, v-z+1-2, 3-9, 0)
-     * 6. RIGHT×(7-endCol) → jumps from keyboard to results panel
-     * 7. DPAD_DOWN + DPAD_CENTER → first result selected
+     * SEARCH PATH (verified March 2026, Onn Google TV — live ADB dump confirmed):
+     * 1. After home loads: DPAD_LEFT → sidebar opens, focus lands on "Home" (item 3 of 9)
+     *    NOTE: Do NOT press UP first — it goes to the top tab bar ("For You"), not the sidebar.
+     * 2. DPAD_UP → focus moves to "Search" (item 2)
+     * 3. DPAD_CENTER → search keyboard appears, focus lands on 'a' (row 0, col 0)
+     * 4. Type via typeDisney7Keyboard() (7-col layout: a-g, h-n, o-u, v-z+1-2, 3-9, 0)
+     * 5. RIGHT×(7-endCol) → jumps from keyboard directly to first result (col 1)
+     *    NOTE: No DOWN needed — already on the correct result row after crossing keyboard.
      *
      * SEASON/EPISODE (unchanged — verified working March 2026):
      * - DOWN×1 → season tabs, RIGHT×(season-1), CENTER, DOWN×1, DOWN×(episode-1), CENTER
