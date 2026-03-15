@@ -572,12 +572,6 @@ class ContentLaunchService : Service() {
     /**
      * HULU — Search + navigate to specific season/episode
      *
-     * BUG FIX (Bug 4): Full search flow built from scratch.
-     * Hulu is WebView-based (OPAQUE) — all navigation is blind timed DPAD.
-     */
-    /**
-     * HULU — Search + navigate to specific season/episode
-     *
      * VERIFIED navigation (live-tested on Onn Google TV, Hulu app):
      *
      * SEARCH:
