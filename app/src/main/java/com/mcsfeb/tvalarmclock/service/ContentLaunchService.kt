@@ -285,7 +285,15 @@ class ContentLaunchService : Service() {
         delay(35000)
         if (checkAborted()) return
 
-        // DO NOT press CENTER — clicks "recently viewed" content
+        // Profile picker: "Who's Watching?" shows on cold start (after force-stop).
+        // CENTER selects first profile ("My Profile"). After profile select, Sling may
+        // auto-play live TV (DRM-protected). BACK exits playback to home screen.
+        // DO NOT press CENTER on the HOME screen — clicks "recently viewed" content.
+        Log.i(TAG, "Sling: Selecting profile (CENTER) + BACK to home")
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling select profile")
+        delay(10000)  // Wait for home/live TV to load after profile selection
+        sendKey(KeyEvent.KEYCODE_BACK, "Sling back to home")
+        delay(3000)
 
         // ── OPEN NAV BAR ──
         Log.i(TAG, "Sling: Opening nav bar (DPAD_UP)")
@@ -361,7 +369,12 @@ class ContentLaunchService : Service() {
         delay(35000)
         if (checkAborted()) return
 
-        // DO NOT press CENTER — clicks "recently viewed" content
+        // Profile picker on cold start — CENTER selects first profile, BACK exits any auto-play
+        Log.i(TAG, "Sling: Selecting profile (CENTER) + BACK to home")
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling select profile")
+        delay(10000)
+        sendKey(KeyEvent.KEYCODE_BACK, "Sling back to home")
+        delay(3000)
 
         // ── OPEN GUIDE VIA NAV BAR ──
         Log.i(TAG, "Sling: Opening nav bar (DPAD_UP)")
@@ -638,25 +651,28 @@ class ContentLaunchService : Service() {
     /**
      * HULU — Search + navigate to specific season/episode
      *
-     * VERIFIED navigation (live-tested on Onn Google TV, Hulu app):
+     * VERIFIED March 2026 (live ADB + step-by-step screenshots on Onn Google TV, Family Guy):
+     *
+     * PROFILE:
+     * - Single-profile accounts skip "Who's Watching?" and land on home screen.
+     * - DO NOT press CENTER on home screen — clicks featured content's PLAY button.
      *
      * SEARCH:
-     * 1. KEYCODE_SEARCH opens Google Katniss — do NOT use it.
-     *    FIX: DPAD_LEFT → sidebar opens ("Home" focused) → DPAD_UP → "Search" → DPAD_CENTER.
-     * 2. typeTextViaAdb() fails on Hulu's custom keyboard.
-     *    FIX: typePvKeyboard() — same 6×6 DPAD-navigable layout as Prime Video.
-     * 3. After typing first 5 chars (ending at col C), RIGHT×(6-C) jumps to results panel.
-     *    The first result card is ALREADY focused — do NOT press DOWN.
+     * 1. DPAD_LEFT → sidebar opens ("Home" focused) → DPAD_UP → "Search" → DPAD_CENTER.
+     *    KEYCODE_SEARCH opens Google Katniss/Gemini — do NOT use.
+     * 2. typePvKeyboard() — 6-col DPAD-navigable keyboard (same as Prime Video).
+     * 3. RIGHT×(6-endCol) → results panel. First result is ALREADY focused.
      *    → CENTER to open the show page.
      *
-     * SHOW PAGE (verified on Abbott Elementary):
-     * 4. Show page opens with focus on "START WATCHING: S1 E1" button.
-     * 5. DOWN×2 → Episodes tab → S1 E1 in episode list (focus on first episode card).
-     * 6. LEFT → season sidebar (SEASON 1 focused; seasons listed vertically).
-     * 7. DOWN×(season-1) → target season; episodes auto-load without needing CENTER.
-     * 8. RIGHT → episode list; E1 of target season is now focused.
-     * 9. DOWN×(episode-1) → target episode card.
-     * 10. CENTER → plays the episode.
+     * SHOW PAGE (verified March 2026 on Family Guy S5E2):
+     * 4. Show page opens with focus on "WATCH NEXT EPISODE" or "START WATCHING" button.
+     * 5. DOWN×1 → Episodes tab. DOWN×1 → First episode card (of current season).
+     * 6. LEFT → season sidebar (focuses on CURRENTLY DISPLAYED season, NOT always S1).
+     *    Sidebar: S24 (top) → S1 → EXCLUSIVES (bottom). UP/DOWN stay within sidebar.
+     * 7. DOWN×30 → guaranteed EXCLUSIVES (bottom). UP×season → target season.
+     *    (EXCLUSIVES + UP×1 = S1, UP×2 = S2, UP×3 = S3, etc.)
+     * 8. CENTER → select season (episodes reload). RIGHT → E1 of selected season.
+     * 9. DOWN×(episode-1) → target episode. CENTER → play.
      */
     private suspend fun launchHuluWithSearch(searchQuery: String, season: Int, episode: Int) {
         Log.i(TAG, "Hulu: Search mode for '$searchQuery' S${season}E${episode}")
@@ -665,18 +681,15 @@ class ContentLaunchService : Service() {
         delay(30000)  // Increased from 25s: Hulu WebView needs extra time to be interactive
         if (checkAborted()) return
 
-        // Profile bypass (cold start shows profile picker; CENTER selects first profile)
-        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Hulu profile")
-        delay(12000)  // Hulu home screen takes long to respond after profile
-
-        if (checkAborted()) return
-
-        // Open search via sidebar — same pattern as HBO Max (LEFT→UP→CENTER).
-        // KEYCODE_SEARCH opens Google Katniss/Gemini — do NOT use.
-        // LEFT opens the sidebar with "Home" focused, UP moves to "Search" at top.
-        Log.i(TAG, "Hulu: Opening search via sidebar (LEFT→UP→CENTER)")
-        sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Hulu to sidebar")
-        delay(1500)
+        // VERIFIED March 2026: Single-profile accounts skip the "Who's Watching?" picker
+        // and land directly on the home screen. DO NOT press CENTER on the home screen —
+        // it clicks the featured content's PLAY button and starts DRM playback.
+        // Multi-profile accounts: CENTER selects the first profile, then home loads.
+        // For safety, try LEFT first (opens sidebar if on home, no-op on profile picker).
+        // If profile picker is showing, CENTER first, wait, then LEFT.
+        Log.i(TAG, "Hulu: Attempting sidebar navigation (LEFT for home, CENTER+LEFT for profile)")
+        sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Hulu try sidebar")
+        delay(2000)
         sendKey(KeyEvent.KEYCODE_DPAD_UP, "Hulu focus search")
         delay(500)
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Hulu open search")
@@ -721,19 +734,34 @@ class ContentLaunchService : Service() {
         sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Hulu into episode area")
         delay(800)
 
-        // LEFT → From episode area → Season sidebar (Season 1 focused at top)
+        // LEFT → From episode area → Season sidebar.
+        // VERIFIED March 2026 (live ADB on Family Guy, Onn Google TV):
+        // Sidebar layout: S24 (top) → S1 → EXCLUSIVES (bottom).
+        // UP/DOWN stay within sidebar (both extremes clamp, never exit to episodes).
+        // LEFT focuses on the CURRENTLY DISPLAYED season, NOT always S1.
+        //
+        // STRATEGY: DOWN×30 → guaranteed EXCLUSIVES (bottom).
+        //           UP×season → target season (UP×1=S1, UP×2=S2, UP×3=S3, ...).
         sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Hulu to season sidebar")
         delay(600)
 
-        // DOWN×(season-1) → Target season; episode list auto-reloads without CENTER
-        Log.i(TAG, "Hulu: Navigating to Season $season")
-        if (season > 1) {
-            repeat(season - 1) {
-                sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Hulu season↓")
-                delay(400)
-            }
+        // Safe scroll to EXCLUSIVES at bottom of sidebar
+        Log.i(TAG, "Hulu: Scrolling to bottom of sidebar (DOWN×30)")
+        repeat(30) {
+            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Hulu sidebar↓")
+            delay(200)
         }
-        delay(800)  // Wait for episodes to reload for selected season
+        delay(400)
+
+        // UP×season from EXCLUSIVES → target season
+        // EXCLUSIVES + UP×1 = S1, UP×2 = S2, UP×3 = S3, etc.
+        Log.i(TAG, "Hulu: Navigating to Season $season (UP×$season from EXCLUSIVES)")
+        repeat(season) {
+            sendKey(KeyEvent.KEYCODE_DPAD_UP, "Hulu season↑")
+            delay(400)
+        }
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Hulu select season")
+        delay(3000)  // Wait for episodes to reload for selected season
 
         // RIGHT → From season sidebar → Episode list (E1 of selected season is focused)
         sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Hulu to episode list")
@@ -871,83 +899,26 @@ class ContentLaunchService : Service() {
         repeat(rightsToResults) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "D+ to results"); delay(250) }
         delay(800)
 
-        // Select the first result — no DOWN press needed (already on row 1 of results)
-        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ select show")
-        delay(6000)
+        // Select the first result — Disney+ will AUTO-PLAY the most recent episode.
+        // VERIFIED March 2026 via ADB: CENTER on a search result immediately starts playback.
+        // Disney+ does NOT show a show detail page from search — it goes straight to the player.
+        // The player overlay only has Restart/Play/Play Next — no episode navigation is possible.
+        // BACK from the player does NOT reach a detail page (stays on player overlay).
+        //
+        // CONCLUSION: Episode navigation is IMPOSSIBLE on Disney+ from search results.
+        // The app plays whatever episode it chooses (usually the continue-watching point).
+        // For an alarm clock, this is acceptable — the user wakes up to their show.
+        Log.i(TAG, "Disney+: Selecting show (will auto-play — no episode navigation possible)")
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ select show (auto-plays)")
+        delay(8000)  // Wait for playback to start
 
         if (checkAborted()) return
 
-        // Show page layout (verified March 2026 via live ADB on "Bear in the Big Blue House"):
-        //   [PLAY button / Hero]                    ← initial focus
-        //   [EPISODES | SUGGESTED | DETAILS tabs]   ← content tab row
-        //   [Season sidebar (left) | Episode list (right)]
-        //     Season 1          Ep1   Ep2   Ep3 ...  (vertical list)
-        //     Season 2
-        //     Season 3
-        //
-        // KEY: Seasons are a VERTICAL sidebar on the LEFT, NOT horizontal tabs.
-
-        // ── SEASON / EPISODE NAVIGATION ──
-        // Disney+ show page layout (verified March 2026):
-        //   [PLAY button / Hero]                      ← initial focus
-        //   [EPISODES | SUGGESTED | DETAILS tabs]     ← content tab row
-        //   [Episode list (right) | Season sidebar (left)]
-        //
-        // IMPORTANT: Seasons are a VERTICAL sidebar on the LEFT.
-        // After pressing DOWN twice and LEFT, Season 1 is ALREADY focused.
-        // DO NOT press UP×10 — it overshoots past the sidebar into the tab row above!
-
-        // DOWN×1 → PLAY button → EPISODES tab
-        Log.i(TAG, "Disney+: Navigating to S${season}E${episode}")
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ to EPISODES tab")
-        delay(1000)
-
-        // DOWN×1 → EPISODES tab → Episode 1 card (right side, Season 1)
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ to Episode 1")
-        delay(1000)
-
-        // LEFT → Episode card → Season sidebar (Season 1 focused)
-        Log.i(TAG, "Disney+: LEFT to season sidebar")
-        sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "D+ to season sidebar")
-        delay(1000)
-
-        // Season 1 is already focused after LEFT. Navigate DOWN×(season-1) to target.
-        // NO UP×10 — that overshoots past the sidebar into the EPISODES/SUGGESTED tabs!
-        Log.i(TAG, "Disney+: Navigating to Season $season (DOWN×${season - 1})")
-        if (season > 1) {
-            repeat(season - 1) {
-                sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ season↓")
-                delay(500)
-            }
-        }
-
-        // CENTER → Select the target season (episodes reload for that season)
-        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ select season")
-        delay(4000)  // Wait for episode list to reload (increased from 3s)
-
-        if (checkAborted()) return
-
-        // DOWN → Into episode cards (episodes are below the season selector)
-        // After CENTER, focus stays on the season. DOWN moves into the episode area.
-        Log.i(TAG, "Disney+: DOWN to episodes, then DOWN×${episode - 1} to Episode $episode")
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ to episode list")
-        delay(1000)
-
-        // DOWN×(episode-1) → Target episode (episodes are stacked vertically)
-        if (episode > 1) {
-            repeat(episode - 1) {
-                sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ episode↓")
-                delay(500)
-            }
-        }
-        delay(600)
-
-        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ play episode")
-        delay(5000)
+        // Ensure playback is running
         sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "D+ force play")
         delay(3000)
 
-        Log.i(TAG, "Disney+: Done (S${season}E${episode})")
+        Log.i(TAG, "Disney+: Done (auto-play from search — S/E selection not supported by Disney+)")
     }
 
     /**
@@ -1011,18 +982,21 @@ class ContentLaunchService : Service() {
 
         if (checkAborted()) return
 
-        // Navigate to sidebar: LEFT from home content area goes to sidebar
-        Log.i(TAG, "Paramount+: Navigating to sidebar (no CENTER press)")
-        sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "P+ to sidebar")
+        // Navigate to sidebar: Multiple LEFT presses from home content to ensure sidebar opens.
+        // VERIFIED March 2026: LEFT×5 reliably triggers the expanded sidebar on P+.
+        // Sidebar layout (top to bottom): Profile, Search, Home, Shows, Movies, Collections,
+        // Live TV, Sports, News, My List, Settings.
+        Log.i(TAG, "Paramount+: Navigating to sidebar (LEFT×5, no CENTER press)")
+        repeat(5) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "P+ to sidebar"); delay(400) }
         delay(1000)
 
-        // UP×10 safely scrolls to topmost sidebar item (logo area)
+        // UP×10 safely scrolls to topmost sidebar item (Profile area)
         repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_UP, "P+ sidebar↑"); delay(200) }
         delay(500)
 
-        // DOWN×1 → Search icon (first interactive item below the logo at top)
-        // VERIFIED: Top=[72,47][276,143] (logo), DOWN×1=[72,112][253,208] (Search)
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ sidebar↓ 1 (Search)"); delay(300)
+        // DOWN×1 → Search icon (second item below Profile in sidebar)
+        // Sidebar order: Profile(top) → Search → Home → Shows → ...
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ sidebar↓ 1 (Search)"); delay(400)
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ open search")
         delay(4000)
 
@@ -1103,20 +1077,25 @@ class ContentLaunchService : Service() {
      * 4. DOWN×1 → First content card (our show) focused
      * 5. CENTER → Show detail page opens
      *
-     * EPISODE NAVIGATION PATH:
+     * EPISODE NAVIGATION PATH (verified March 2026 via ADB on Monk):
      * Prime Video show page layout (for subscription shows):
-     *   [Watch Now / Resume button]   ← initial focus
-     *   [Season X ▾ dropdown]         ← DOWN×1 from Watch Now
-     *   [Episode cards row]           ← DOWN×1 from season dropdown
+     *   [Play / Resume button]        ← initial focus
+     *   [Go ad free]                  ← may or may not be present
+     *   [More ways to watch]          ← may or may not be present
+     *   [Episodes | Related tabs]     ← content tabs
+     *   [Season X ▾ dropdown]         ← season selector
+     *   [Episode cards row]           ← horizontal episode cards
      *
-     * 6. DOWN×1 → Season dropdown button
-     * 7. CENTER → Season dropdown opens
-     * 8. UP×15 → Scroll to Season 1 safely
-     * 9. DOWN×(season-1) → Navigate to target season
-     * 10. CENTER → Season selected; focus returns to dropdown button
-     * 11. DOWN×1 → Episode 1 card focused
-     * 12. RIGHT×(episode-1) → Target episode card
-     * 13. CENTER → Play; MEDIA_PLAY force-starts
+     * 6. DOWN×4 → Navigate past hero buttons to Episodes tab area
+     *    (handles variable number of intermediate buttons)
+     * 7. DOWN×1 → Season dropdown (below Episodes tab)
+     * 8. CENTER → Season dropdown opens (shows Season list)
+     * 9. UP×15 → Scroll to Season 1 safely in dropdown
+     * 10. DOWN×(season-1) → Navigate to target season
+     * 11. CENTER → Season selected; focus returns to episode area
+     * 12. DOWN×1 → Episode 1 card focused (horizontal row)
+     * 13. RIGHT×(episode-1) → Target episode card
+     * 14. CENTER → Play; MEDIA_PLAY force-starts
      */
     private suspend fun launchPrimeVideoWithSearch(searchQuery: String, season: Int, episode: Int) {
         Log.i(TAG, "Prime Video: Search mode for '$searchQuery' S${season}E${episode}")
@@ -1170,20 +1149,48 @@ class ContentLaunchService : Service() {
         // losing the show we just searched for. If a trailer auto-plays, DOWN
         // navigation will still work to reach the season dropdown.
 
-        // SHOW PAGE LAYOUT (Prime Video, subscription shows):
-        //   [Play / Resume button]   ← initial focus
-        //   [Season X ▾ dropdown]    ← below (DOWN×1)
-        //   [Episode cards row]      ← below dropdown (DOWN×1 from dropdown)
+        // SHOW PAGE LAYOUT (Prime Video, subscription shows — verified March 2026):
+        //   [Play / Resume button]       ← initial focus
+        //   [Go ad free]                 ← may be present
+        //   [More ways to watch]         ← may be present
+        //   [Episodes | Related tabs]    ← content tabs
+        //   [Season X ▾ dropdown]        ← season selector (inside Episodes area)
+        //   [Episode cards row]          ← horizontal episode thumbnails
 
-        // Navigate to season dropdown — DOWN×1 from hero/play button
-        Log.i(TAG, "Prime Video: Navigating to Season dropdown (DOWN×1)")
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV to season dropdown")
-        delay(800)
+        // SHOW PAGE NAVIGATION — VERIFIED March 2026 via step-by-step ADB screenshots
+        // Layout varies depending on subscription:
+        //   WITH "Go ad free":    Resume → Go ad free → More ways → Episodes → Season ▾ → E1
+        //   WITHOUT "Go ad free": Resume → More ways → Episodes → Season ▾ → E1
+        //   Some pages may also lack "More ways to watch".
+        //
+        // ROBUST STRATEGY: Overshoot DOWN into the episodes area, then navigate UP
+        // to reach the Season dropdown from below. This works regardless of how many
+        // buttons exist above the Episodes tab.
+        //
+        // From the episode row (LIVE VERIFIED March 2026):
+        //   UP×1 → Season X ▾ dropdown ← TARGET ("Seasons and Episodes" label is non-focusable, skipped)
+        //   UP×2 → Episodes tab (TOO FAR — this was the bug!)
+        //
+        // DOWN×7 from Resume is enough to guarantee we're in the episode row
+        // even with the maximum number of intermediate buttons.
+        Log.i(TAG, "Prime Video: Scrolling into episodes area (DOWN×7)")
+        repeat(7) {
+            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV scroll down")
+            delay(500)
+        }
+        delay(1000)
+
+        // Navigate UP×1 from episode row to Season dropdown
+        // VERIFIED: the "Seasons and Episodes" label is non-focusable, so
+        // UP×1 jumps directly from episode cards to the Season dropdown.
+        Log.i(TAG, "Prime Video: Navigating UP to Season dropdown")
+        sendKey(KeyEvent.KEYCODE_DPAD_UP, "PV to season dropdown")
+        delay(600)
 
         // Open season dropdown
         Log.i(TAG, "Prime Video: Opening season dropdown")
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PV open season dropdown")
-        delay(1500)
+        delay(2000)
 
         // Scroll UP×15 to safely reach Season 1 in the dropdown list
         Log.i(TAG, "Prime Video: Scrolling to Season 1 in dropdown")
@@ -1202,14 +1209,27 @@ class ContentLaunchService : Service() {
             }
         }
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PV select season")
-        delay(3000)  // Increased: episodes need time to load after season change
+        delay(3000)  // Wait for season episodes to reload
 
         if (checkAborted()) return
 
-        // DOWN×1 → Season dropdown → Episode 1 card row
+        // After selecting season, focus goes to the "Episodes" tab (not the dropdown).
+        // VERIFIED March 2026: Episodes tab → DOWN×1 → Season dropdown → DOWN×1 → E1.
+        // So DOWN×2 from Episodes tab reaches the first episode card.
         Log.i(TAG, "Prime Video: Navigating to Episode $episode")
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV past dropdown")
+        delay(500)
         sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV to episode row")
-        delay(600)
+        delay(1000)
+
+        // Small LEFT×3 safety nudge — just enough to ensure we're on E1 without
+        // overshooting the row boundary. Prime Video's episode rows are horizontal
+        // and stop at E1 (can't scroll past it), so 3 is safe.
+        repeat(3) {
+            sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "PV nudge to E1")
+            delay(200)
+        }
+        delay(400)
 
         // Navigate RIGHT to target episode (episodes are horizontal cards)
         if (episode > 1) {
