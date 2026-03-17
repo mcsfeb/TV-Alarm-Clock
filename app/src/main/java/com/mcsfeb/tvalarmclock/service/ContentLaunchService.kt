@@ -309,11 +309,11 @@ class ContentLaunchService : Service() {
         delay(4000)
         if (checkAborted()) return
 
-        // Type query via 6-col keyboard
-        val queryToType = cleanQuery.lowercase().filter { it.isLetterOrDigit() }.take(12)
+        // Type query via 6-col keyboard (full name for accurate results)
+        val queryToType = cleanQuery.lowercase().filter { it.isLetterOrDigit() }.take(20)
         Log.i(TAG, "Sling: Typing '$queryToType'")
         val (_, endCol) = typePvKeyboard(queryToType)
-        delay(2500)
+        delay(3000)
         if (checkAborted()) return
 
         // RIGHT×(6-endCol) to jump from keyboard into results panel
@@ -322,31 +322,87 @@ class ContentLaunchService : Service() {
         repeat(rightsToResults) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling to results"); delay(250) }
         delay(500)
 
-        // Select first result
+        // Select first result → show detail page
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling select result")
-        delay(5000)
+        delay(6000)  // Wait for show page to load
 
-        // VOD: navigate to season/episode
-        if (season > 1 || episode > 1) {
-            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Sling to episode area")
-            delay(600)
-            if (season > 1) {
-                repeat(season - 1) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling season→"); delay(350) }
+        if (checkAborted()) return
+
+        // ── VOD SEASON / EPISODE NAVIGATION ──
+        // DIFFERENTIAL ALGORITHM: Handle single-season vs multi-season differently.
+
+        if (season <= 1) {
+            // ── SINGLE SEASON ──
+            // Scroll down to episodes, skip season selection.
+            Log.i(TAG, "Sling: Season 1 — navigating directly to episodes")
+            repeat(4) {
+                sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Sling scroll to episodes")
+                delay(500)
+            }
+            delay(500)
+
+            // LEFT×10 safe nudge to E1
+            repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Sling nudge to E1"); delay(150) }
+            delay(400)
+
+            // RIGHT×(episode-1) → target episode
+            Log.i(TAG, "Sling: Navigating to Episode $episode")
+            if (episode > 1) {
+                repeat(episode - 1) {
+                    sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling episode→")
+                    delay(350)
+                }
+            }
+            delay(500)
+        } else {
+            // ── MULTI-SEASON ──
+            Log.i(TAG, "Sling: Multi-season — navigating to S${season}E${episode}")
+
+            // DOWN to reach season/episode area
+            repeat(3) {
+                sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Sling to season area")
+                delay(500)
+            }
+            delay(500)
+
+            // LEFT×10 safe nudge to S1
+            repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Sling nudge to S1"); delay(150) }
+            delay(400)
+
+            // RIGHT×(season-1) → target season
+            Log.i(TAG, "Sling: Selecting Season $season")
+            repeat(season - 1) {
+                sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling season→")
+                delay(400)
             }
             sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling select season")
-            delay(1500)
+            delay(2000)
+
+            // DOWN to episode row
             sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Sling to episodes")
             delay(600)
+
+            // LEFT×10 safe nudge to E1
+            repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Sling nudge to E1"); delay(150) }
+            delay(400)
+
+            // RIGHT×(episode-1) → target episode
+            Log.i(TAG, "Sling: Navigating to Episode $episode")
             if (episode > 1) {
-                repeat(episode - 1) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling episode→"); delay(300) }
+                repeat(episode - 1) {
+                    sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling episode→")
+                    delay(350)
+                }
             }
+            delay(500)
         }
+
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling play episode")
         delay(4000)
         sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling force play")
         delay(3000)
 
-        Log.i(TAG, "Sling: Done")
+        Log.i(TAG, "Sling: Done (S${season}E${episode})")
     }
 
     /**
@@ -697,9 +753,10 @@ class ContentLaunchService : Service() {
 
         if (checkAborted()) return
 
-        // Type first 5 chars via keyboard navigation (ADB input text doesn't work on Hulu)
+        // Type show name via keyboard navigation (ADB input text doesn't work on Hulu)
         // Keyboard layout: 6×6 grid identical to Prime Video (row0=a-f, row1=g-l, …, row5=5-0)
-        val queryToType = searchQuery.lowercase().filter { it.isLetterOrDigit() }.take(5)
+        // Use full name (up to 20 chars) for consistent, accurate results.
+        val queryToType = searchQuery.lowercase().filter { it.isLetterOrDigit() }.take(20)
         Log.i(TAG, "Hulu: Typing '$queryToType' via keyboard nav")
         val (_, endCol) = typePvKeyboard(queryToType)
         delay(3000)  // Increased from 2s: wait for search results to populate
@@ -725,12 +782,15 @@ class ContentLaunchService : Service() {
         //     Season 2
         //     ...
 
-        // DOWN×1 → Start Watching button → Episodes tab
-        Log.i(TAG, "Hulu: Navigating to episode section")
+        // ALWAYS use full season navigation — the show page may open on ANY season
+        // (the last-watched season), so we must explicitly navigate to the correct one.
+        // Cannot skip for season==1 because the page might show S2/S3/etc.
+        Log.i(TAG, "Hulu: Navigating to Season $season, Episode $episode")
+
+        // DOWN×1 → Start Watching → Episodes tab
         sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Hulu to Episodes tab")
         delay(600)
-
-        // DOWN×1 → Episodes tab → Into the episode area (E1 of S1 is focused)
+        // DOWN×1 → into episode area (E1 focused)
         sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Hulu into episode area")
         delay(800)
 
@@ -899,26 +959,105 @@ class ContentLaunchService : Service() {
         repeat(rightsToResults) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "D+ to results"); delay(250) }
         delay(800)
 
-        // Select the first result — Disney+ will AUTO-PLAY the most recent episode.
-        // VERIFIED March 2026 via ADB: CENTER on a search result immediately starts playback.
-        // Disney+ does NOT show a show detail page from search — it goes straight to the player.
-        // The player overlay only has Restart/Play/Play Next — no episode navigation is possible.
-        // BACK from the player does NOT reach a detail page (stays on player overlay).
-        //
-        // CONCLUSION: Episode navigation is IMPOSSIBLE on Disney+ from search results.
-        // The app plays whatever episode it chooses (usually the continue-watching point).
-        // For an alarm clock, this is acceptable — the user wakes up to their show.
-        Log.i(TAG, "Disney+: Selecting show (will auto-play — no episode navigation possible)")
-        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ select show (auto-plays)")
-        delay(8000)  // Wait for playback to start
+        // Select the first result → show detail page opens
+        Log.i(TAG, "Disney+: Opening show detail page")
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ select show")
+        delay(8000)  // Wait for show detail page to fully load
 
         if (checkAborted()) return
 
-        // Ensure playback is running
+        // ── SEASON / EPISODE NAVIGATION ──
+        // Disney+ show detail page layout (VERIFIED March 2026 via live ADB):
+        //   [PLAY button]               ← initial focus
+        //   [EPISODES tab]              ← DOWN×1
+        //   [Episode cards area]        ← DOWN×1
+        //   [Season sidebar on LEFT]    ← LEFT from episode cards
+        //
+        // Seasons are a VERTICAL sidebar on the LEFT, NOT horizontal tabs!
+        // Sidebar: Season 1 (top) → Season 2 → ... → Season N (bottom)
+
+        // DIFFERENTIAL ALGORITHM: Handle single-season vs multi-season differently.
+        if (season <= 1) {
+            // ── SINGLE SEASON (or S1 requested) ──
+            // Skip season sidebar. Navigate directly to episodes.
+            Log.i(TAG, "Disney+: Season 1 — skipping sidebar, navigating directly to episodes")
+
+            // DOWN×1 → PLAY → EPISODES tab
+            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ to EPISODES tab")
+            delay(600)
+            // DOWN×1 → into episode area (E1 focused)
+            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ into episode area")
+            delay(800)
+
+            // Navigate to target episode
+            Log.i(TAG, "Disney+: Navigating to Episode $episode")
+            if (episode > 1) {
+                repeat(episode - 1) {
+                    sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ episode↓")
+                    delay(350)
+                }
+            }
+            delay(500)
+        } else {
+            // ── MULTI-SEASON (season > 1) ──
+            // Navigate via season sidebar.
+            Log.i(TAG, "Disney+: Multi-season — navigating to S${season}E${episode}")
+
+            // DOWN×1 → PLAY → EPISODES tab
+            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ to EPISODES tab")
+            delay(600)
+            // DOWN×1 → into episode area (E1 focused)
+            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ into episode area")
+            delay(800)
+
+            // LEFT → Season sidebar (vertical list)
+            sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "D+ to season sidebar")
+            delay(600)
+
+            // UP×10 → safely scroll to Season 1 (top of sidebar)
+            Log.i(TAG, "Disney+: Scrolling to Season 1 (UP×10)")
+            repeat(10) {
+                sendKey(KeyEvent.KEYCODE_DPAD_UP, "D+ season sidebar↑")
+                delay(200)
+            }
+            delay(400)
+
+            // DOWN×(season-1) → target season
+            Log.i(TAG, "Disney+: Navigating to Season $season (DOWN×${season - 1})")
+            if (season > 1) {
+                repeat(season - 1) {
+                    sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ season↓")
+                    delay(350)
+                }
+            }
+            // CENTER → select season
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ select season")
+            delay(3000)  // Wait for season episodes to reload
+
+            // RIGHT → from sidebar back to episode list (E1 of selected season)
+            sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "D+ to episode list")
+            delay(600)
+
+            // DOWN×(episode-1) → target episode
+            Log.i(TAG, "Disney+: Navigating to Episode $episode")
+            if (episode > 1) {
+                repeat(episode - 1) {
+                    sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ episode↓")
+                    delay(350)
+                }
+            }
+            delay(500)
+        }
+
+        if (checkAborted()) return
+
+        // Play the episode
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ play episode")
+        delay(4000)
         sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "D+ force play")
         delay(3000)
 
-        Log.i(TAG, "Disney+: Done (auto-play from search — S/E selection not supported by Disney+)")
+        Log.i(TAG, "Disney+: Done (S${season}E${episode})")
     }
 
     /**
@@ -1009,7 +1148,8 @@ class ContentLaunchService : Service() {
         delay(500)
 
         // Type show name via 6-col DPAD keyboard (same layout as Prime Video)
-        val queryToType = searchQuery.lowercase().filter { it.isLetterOrDigit() }.take(8)
+        // Use full name (up to 20 chars) for consistent, accurate search results.
+        val queryToType = searchQuery.lowercase().filter { it.isLetterOrDigit() }.take(20)
         Log.i(TAG, "Paramount+: Typing '$queryToType'")
         val (_, endCol) = typePvKeyboard(queryToType)
         delay(3000)
@@ -1031,29 +1171,69 @@ class ContentLaunchService : Service() {
         if (checkAborted()) return
 
         // ── SEASON / EPISODE NAVIGATION ──
-        // P+ show detail: hero button → [DOWN] → season tabs (S1,S2,S3...) → [DOWN] → episode cards
-        Log.i(TAG, "Paramount+: Navigating to S${season}E${episode}")
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ to season tabs")
-        delay(800)
+        // P+ show detail page layout:
+        //   [Hero / Play button]           ← initial focus
+        //   [Episodes / Extras tabs]       ← varies, may have extra rows
+        //   [Season tabs: S1 S2 S3 ...]   ← horizontal season selector
+        //   [Episode cards: E1 E2 E3 ...]  ← horizontal episode thumbnails
+        //
+        // DIFFERENTIAL ALGORITHM: Handle single-season vs multi-season differently.
 
-        // Navigate to target season (S1 is focused by default — RIGHT×(season-1))
-        if (season > 1) {
+        if (season <= 1) {
+            // ── SINGLE SEASON (or S1 requested) ──
+            // Scroll down aggressively to reach episodes, skip season tabs.
+            Log.i(TAG, "Paramount+: Season 1 — scrolling to episodes (DOWN×5)")
+            repeat(5) {
+                sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ scroll to episodes")
+                delay(500)
+            }
+            delay(800)
+
+            // LEFT×10 safe nudge to E1
+            repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "P+ nudge to E1"); delay(150) }
+            delay(400)
+
+            // RIGHT×(episode-1) → target episode
+            Log.i(TAG, "Paramount+: Navigating to Episode $episode")
+            if (episode > 1) {
+                repeat(episode - 1) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "P+ episode→"); delay(350) }
+            }
+            delay(500)
+        } else {
+            // ── MULTI-SEASON (season > 1) ──
+            // DOWN×3 to reach season tabs area (overshoots past hero/extras)
+            Log.i(TAG, "Paramount+: Navigating to S${season}E${episode}")
+            repeat(3) {
+                sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ to season tabs area")
+                delay(600)
+            }
+            delay(500)
+
+            // LEFT×10 safe nudge to S1
+            repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "P+ nudge to S1"); delay(150) }
+            delay(400)
+
+            // RIGHT×(season-1) → target season tab
             Log.i(TAG, "Paramount+: Selecting Season $season")
             repeat(season - 1) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "P+ season→"); delay(400) }
             sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ select season")
-            delay(2000)
-        }
+            delay(3000)
 
-        // DOWN×1 → episode cards row
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ to episode cards")
-        delay(600)
+            // DOWN×1 → episode cards row
+            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ to episode cards")
+            delay(800)
 
-        // Navigate to target episode (E1 is focused by default — RIGHT×(episode-1))
-        if (episode > 1) {
+            // LEFT×10 safe nudge to E1
+            repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "P+ nudge to E1"); delay(150) }
+            delay(400)
+
+            // RIGHT×(episode-1) → target episode
             Log.i(TAG, "Paramount+: Selecting Episode $episode")
-            repeat(episode - 1) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "P+ episode→"); delay(350) }
+            if (episode > 1) {
+                repeat(episode - 1) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "P+ episode→"); delay(350) }
+            }
+            delay(500)
         }
-        delay(500)
 
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ play episode")
         delay(4000)
@@ -1117,9 +1297,9 @@ class ContentLaunchService : Service() {
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PV open search")
         delay(2500)
 
-        // Type first 5 chars of show name via keyboard navigation.
+        // Type show name via keyboard navigation (full name for accurate results).
         // ADB `input text` does NOT work on Prime Video's custom keyboard.
-        val queryToType = searchQuery.lowercase().filter { it.isLetterOrDigit() }.take(5)
+        val queryToType = searchQuery.lowercase().filter { it.isLetterOrDigit() }.take(20)
         Log.i(TAG, "Prime Video: Typing '$queryToType' via keyboard navigation")
         val (_, endCol) = typePvKeyboard(queryToType)
         delay(1500)
@@ -1165,82 +1345,108 @@ class ContentLaunchService : Service() {
         //   WITHOUT "Go ad free": Resume → More ways → Episodes → Season ▾ → E1
         //   Some pages may also lack "More ways to watch".
         //
-        // ROBUST STRATEGY: Overshoot DOWN into the episodes area, then navigate UP
-        // to reach the Season dropdown from below. This works regardless of how many
-        // buttons exist above the Episodes tab.
-        //
-        // From the episode row (LIVE VERIFIED March 2026):
-        //   UP×1 → Season X ▾ dropdown ← TARGET ("Seasons and Episodes" label is non-focusable, skipped)
-        //   UP×2 → Episodes tab (TOO FAR — this was the bug!)
+        // DIFFERENTIAL ALGORITHM:
+        //   Season 1 (or single-season shows): Skip dropdown, navigate directly to episodes.
+        //   Season > 1: Use dropdown to select season first.
         //
         // DOWN×7 from Resume is enough to guarantee we're in the episode row
         // even with the maximum number of intermediate buttons.
-        Log.i(TAG, "Prime Video: Scrolling into episodes area (DOWN×7)")
-        repeat(7) {
-            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV scroll down")
+
+        if (season <= 1) {
+            // ── SINGLE SEASON (or S1 requested) ──
+            // Skip season dropdown entirely. For single-season shows, the dropdown
+            // may not exist at all, so pressing CENTER would click the wrong thing.
+            Log.i(TAG, "Prime Video: Season 1 — skipping dropdown, navigating to episodes (DOWN×7)")
+            repeat(7) {
+                sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV scroll down")
+                delay(500)
+            }
+            delay(1000)
+
+            // LEFT×5 safe nudge to E1
+            repeat(5) {
+                sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "PV nudge to E1")
+                delay(200)
+            }
+            delay(400)
+
+            // RIGHT×(episode-1) → target episode
+            Log.i(TAG, "Prime Video: Navigating to Episode $episode")
+            if (episode > 1) {
+                repeat(episode - 1) {
+                    sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "PV episode→")
+                    delay(350)
+                }
+            }
             delay(500)
-        }
-        delay(1000)
+        } else {
+            // ── MULTI-SEASON (season > 1) ──
+            // Use season dropdown to select correct season first.
+            Log.i(TAG, "Prime Video: Multi-season — scrolling into episodes area (DOWN×7)")
+            repeat(7) {
+                sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV scroll down")
+                delay(500)
+            }
+            delay(1000)
 
-        // Navigate UP×1 from episode row to Season dropdown
-        // VERIFIED: the "Seasons and Episodes" label is non-focusable, so
-        // UP×1 jumps directly from episode cards to the Season dropdown.
-        Log.i(TAG, "Prime Video: Navigating UP to Season dropdown")
-        sendKey(KeyEvent.KEYCODE_DPAD_UP, "PV to season dropdown")
-        delay(600)
+            // Navigate UP×1 from episode row to Season dropdown
+            // VERIFIED: "Seasons and Episodes" label is non-focusable, so
+            // UP×1 jumps directly from episode cards to the Season dropdown.
+            Log.i(TAG, "Prime Video: Navigating UP to Season dropdown")
+            sendKey(KeyEvent.KEYCODE_DPAD_UP, "PV to season dropdown")
+            delay(600)
 
-        // Open season dropdown
-        Log.i(TAG, "Prime Video: Opening season dropdown")
-        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PV open season dropdown")
-        delay(2000)
+            // Open season dropdown
+            Log.i(TAG, "Prime Video: Opening season dropdown")
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PV open season dropdown")
+            delay(2000)
 
-        // Scroll UP×15 to safely reach Season 1 in the dropdown list
-        Log.i(TAG, "Prime Video: Scrolling to Season 1 in dropdown")
-        repeat(15) {
-            sendKey(KeyEvent.KEYCODE_DPAD_UP, "PV season↑ to S1")
-            delay(200)
-        }
-        delay(400)
+            // Scroll UP×15 to safely reach Season 1 in the dropdown list
+            Log.i(TAG, "Prime Video: Scrolling to Season 1 in dropdown")
+            repeat(15) {
+                sendKey(KeyEvent.KEYCODE_DPAD_UP, "PV season↑ to S1")
+                delay(200)
+            }
+            delay(400)
 
-        // Navigate DOWN to target season
-        Log.i(TAG, "Prime Video: Selecting Season $season")
-        if (season > 1) {
+            // Navigate DOWN to target season
+            Log.i(TAG, "Prime Video: Selecting Season $season")
             repeat(season - 1) {
                 sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV season↓")
                 delay(350)
             }
+            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PV select season")
+            delay(3000)  // Wait for season episodes to reload
+
+            if (checkAborted()) return
+
+            // After selecting season, focus goes to the "Episodes" tab (not the dropdown).
+            // VERIFIED March 2026: Episodes tab → DOWN×1 → Season dropdown → DOWN×1 → E1.
+            // So DOWN×2 from Episodes tab reaches the first episode card.
+            Log.i(TAG, "Prime Video: Navigating to Episode $episode")
+            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV past dropdown")
+            delay(500)
+            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV to episode row")
+            delay(1000)
+
+            // LEFT×5 safe nudge to E1
+            repeat(5) {
+                sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "PV nudge to E1")
+                delay(200)
+            }
+            delay(400)
+
+            // RIGHT×(episode-1) → target episode
+            if (episode > 1) {
+                repeat(episode - 1) {
+                    sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "PV episode→")
+                    delay(350)
+                }
+            }
+            delay(500)
         }
-        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PV select season")
-        delay(3000)  // Wait for season episodes to reload
 
         if (checkAborted()) return
-
-        // After selecting season, focus goes to the "Episodes" tab (not the dropdown).
-        // VERIFIED March 2026: Episodes tab → DOWN×1 → Season dropdown → DOWN×1 → E1.
-        // So DOWN×2 from Episodes tab reaches the first episode card.
-        Log.i(TAG, "Prime Video: Navigating to Episode $episode")
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV past dropdown")
-        delay(500)
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV to episode row")
-        delay(1000)
-
-        // Small LEFT×3 safety nudge — just enough to ensure we're on E1 without
-        // overshooting the row boundary. Prime Video's episode rows are horizontal
-        // and stop at E1 (can't scroll past it), so 3 is safe.
-        repeat(3) {
-            sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "PV nudge to E1")
-            delay(200)
-        }
-        delay(400)
-
-        // Navigate RIGHT to target episode (episodes are horizontal cards)
-        if (episode > 1) {
-            repeat(episode - 1) {
-                sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "PV episode→")
-                delay(350)
-            }
-        }
-        delay(500)
 
         // Play the episode
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PV play")
