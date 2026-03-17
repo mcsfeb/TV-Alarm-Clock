@@ -976,9 +976,11 @@ class ContentLaunchService : Service() {
         delay(30000)
         if (checkAborted()) return
 
-        // DO NOT press CENTER on cold start — single-profile accounts go straight to home,
-        // and CENTER clicks the featured/hero content, breaking all navigation.
-        // Instead, go directly to the sidebar.
+        // Profile picker: "Who's Watching?" shows on cold start with multi-profile accounts.
+        // CENTER selects the first profile. Wait for home screen to load.
+        Log.i(TAG, "Paramount+: Selecting profile (CENTER)")
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ select profile")
+        delay(8000)  // Wait for home screen to load after profile selection
 
         if (checkAborted()) return
 
@@ -986,7 +988,7 @@ class ContentLaunchService : Service() {
         // VERIFIED March 2026: LEFT×5 reliably triggers the expanded sidebar on P+.
         // Sidebar layout (top to bottom): Profile, Search, Home, Shows, Movies, Collections,
         // Live TV, Sports, News, My List, Settings.
-        Log.i(TAG, "Paramount+: Navigating to sidebar (LEFT×5, no CENTER press)")
+        Log.i(TAG, "Paramount+: Navigating to sidebar (LEFT×5)")
         repeat(5) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "P+ to sidebar"); delay(400) }
         delay(1000)
 
