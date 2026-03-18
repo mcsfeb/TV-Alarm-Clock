@@ -1,0 +1,250 @@
+--------- beginning of main
+03-03 14:30:23.027 I/ContentLaunchSvc(30971): ContentLaunchService started as foreground
+03-03 14:30:23.060 I/ContentLaunchSvc(30971): === LAUNCH START: com.wbd.stream ===
+03-03 14:30:23.060 I/ContentLaunchSvc(30971): Deep link: APP_ONLY
+03-03 14:30:23.374 I/ContentLaunchSvc(30971): Step: Going HOME for clean state
+03-03 14:30:23.846 I/ContentLaunchSvc(30971): HOME: success=true
+03-03 14:30:25.868 I/ContentLaunchSvc(30971): Step: Force-stopping com.wbd.stream
+03-03 14:30:26.994 I/ContentLaunchSvc(30971): HBO Max: Normal launch + profile + featured
+03-03 14:30:27.024 I/ContentLaunchSvc(30971): HBO Max: Waiting 25s for cold start...
+03-03 14:30:52.129 I/ContentLaunchSvc(30971): HBO profile select: success=true
+03-03 14:31:00.267 I/ContentLaunchSvc(30971): HBO play featured: success=true
+03-03 14:31:05.784 I/ContentLaunchSvc(30971): HBO force play: success=true
+03-03 14:31:08.788 I/ContentLaunchSvc(30971): HBO Max: Done
+03-03 14:31:08.788 I/ContentLaunchSvc(30971): === LAUNCH COMPLETE: com.wbd.stream ===
+03-03 14:31:08.814 I/ContentLaunchSvc(30971): ContentLaunchService destroyed
+03-03 14:34:24.923 I/ContentLaunchSvc(32342): ContentLaunchService started as foreground
+03-03 14:34:25.019 I/ContentLaunchSvc(32342): === LAUNCH START: com.wbd.stream ===
+03-03 14:34:25.019 I/ContentLaunchSvc(32342): Deep link: APP_ONLY
+03-03 14:34:25.094 I/ContentLaunchSvc(32342): Step: Going HOME for clean state
+03-03 14:34:25.350 I/ContentLaunchSvc(32342): HOME: success=true
+03-03 14:34:27.500 I/ContentLaunchSvc(32342): Step: Force-stopping com.wbd.stream
+03-03 14:34:28.730 I/ContentLaunchSvc(32342): HBO Max: Normal launch + profile + featured
+03-03 14:34:28.746 I/ContentLaunchSvc(32342): HBO Max: Waiting 25s for cold start...
+03-03 14:34:53.891 I/ContentLaunchSvc(32342): HBO profile select: success=true
+03-03 14:35:01.993 I/ContentLaunchSvc(32342): HBO play featured: success=true
+03-03 14:35:07.099 I/ContentLaunchSvc(32342): HBO force play: success=true
+03-03 14:35:10.109 I/ContentLaunchSvc(32342): HBO Max: Done
+03-03 14:35:10.109 I/ContentLaunchSvc(32342): === LAUNCH COMPLETE: com.wbd.stream ===
+03-03 14:35:10.146 I/ContentLaunchSvc(32342): ContentLaunchService destroyed
+03-03 14:36:10.871 I/ContentLaunchSvc(32693): ContentLaunchService started as foreground
+03-03 14:36:10.928 I/ContentLaunchSvc(32693): === LAUNCH START: com.wbd.stream ===
+03-03 14:36:10.929 I/ContentLaunchSvc(32693): Deep link: APP_ONLY
+03-03 14:36:11.037 I/ContentLaunchSvc(32693): Step: Going HOME for clean state
+03-03 14:36:11.339 I/ContentLaunchSvc(32693): HOME: success=true
+03-03 14:36:13.352 I/ContentLaunchSvc(32693): Step: Force-stopping com.wbd.stream
+03-03 14:36:14.532 I/ContentLaunchSvc(32693): HBO Max: Normal launch + profile + featured
+03-03 14:36:14.550 I/ContentLaunchSvc(32693): HBO Max: Waiting 25s for cold start...
+03-03 14:36:39.706 I/ContentLaunchSvc(32693): HBO profile select: success=true
+03-03 14:36:47.811 I/ContentLaunchSvc(32693): HBO play featured: success=true
+03-03 14:36:52.915 I/ContentLaunchSvc(32693): HBO force play: success=true
+03-03 14:36:55.924 I/ContentLaunchSvc(32693): HBO Max: Done
+03-03 14:36:55.925 I/ContentLaunchSvc(32693): === LAUNCH COMPLETE: com.wbd.stream ===
+03-03 14:36:55.952 I/ContentLaunchSvc(32693): ContentLaunchService destroyed
+03-03 15:01:40.533 I/ContentLaunchSvc( 2253): ContentLaunchService started as foreground
+03-03 15:01:40.617 I/ContentLaunchSvc( 2253): === LAUNCH START: com.sling ===
+03-03 15:01:40.617 I/ContentLaunchSvc( 2253): Deep link: APP_ONLY
+03-03 15:01:40.714 I/ContentLaunchSvc( 2253): Volume (AudioManager): 30% → 7/25
+03-03 15:01:40.714 I/ContentLaunchSvc( 2253): Volume (CEC): pressing DOWN×15 then UP×4
+03-03 15:01:47.763 I/ContentLaunchSvc( 2253): Step: Going HOME for clean state
+03-03 15:01:47.862 I/ContentLaunchSvc( 2253): HOME: success=true
+03-03 15:01:49.886 I/ContentLaunchSvc( 2253): Step: Force-stopping com.sling
+03-03 15:01:50.988 I/ContentLaunchSvc( 2253): Sling: Normal launch + CENTER + MEDIA_PLAY
+03-03 15:01:51.022 I/ContentLaunchSvc( 2253): Sling: Waiting 35s for load...
+03-03 15:02:26.166 I/ContentLaunchSvc( 2253): Sling profile dismiss: success=true
+03-03 15:02:31.265 I/ContentLaunchSvc( 2253): Sling force play: success=true
+03-03 15:02:34.267 I/ContentLaunchSvc( 2253): Sling: Done (playing last channel)
+03-03 15:02:34.267 I/ContentLaunchSvc( 2253): === LAUNCH COMPLETE: com.sling ===
+03-03 15:02:34.274 I/ContentLaunchSvc( 2253): ContentLaunchService destroyed
+03-03 15:21:54.270 I/ContentLaunchSvc( 2253): ContentLaunchService started as foreground
+03-03 15:21:54.385 I/ContentLaunchSvc( 2253): === LAUNCH START: com.sling ===
+03-03 15:21:54.385 I/ContentLaunchSvc( 2253): Deep link: APP_ONLY
+03-03 15:21:54.466 I/ContentLaunchSvc( 2253): Volume (AudioManager): 30% → 7/25
+03-03 15:21:54.467 I/ContentLaunchSvc( 2253): Volume (CEC): pressing DOWN×15 then UP×4
+03-03 15:22:01.109 I/ContentLaunchSvc( 2253): Step: Going HOME for clean state
+03-03 15:22:01.196 I/ContentLaunchSvc( 2253): HOME: success=true
+03-03 15:22:03.206 I/ContentLaunchSvc( 2253): Step: Force-stopping com.sling
+03-03 15:22:04.298 I/ContentLaunchSvc( 2253): Sling: Normal launch + CENTER + MEDIA_PLAY
+03-03 15:22:04.340 I/ContentLaunchSvc( 2253): Sling: Waiting 35s for load...
+03-03 15:22:39.450 I/ContentLaunchSvc( 2253): Sling profile dismiss: success=true
+03-03 15:22:44.562 I/ContentLaunchSvc( 2253): Sling force play: success=true
+03-03 15:22:47.564 I/ContentLaunchSvc( 2253): Sling: Done (playing last channel)
+03-03 15:22:47.565 I/ContentLaunchSvc( 2253): === LAUNCH COMPLETE: com.sling ===
+03-03 15:22:47.579 I/ContentLaunchSvc( 2253): ContentLaunchService destroyed
+03-03 15:38:35.897 I/ContentLaunchSvc( 2253): ContentLaunchService started as foreground
+03-03 15:38:35.990 I/ContentLaunchSvc( 2253): === LAUNCH START: com.wbd.stream ===
+03-03 15:38:35.990 I/ContentLaunchSvc( 2253): Deep link: APP_ONLY
+03-03 15:38:36.048 I/ContentLaunchSvc( 2253): Step: Going HOME for clean state
+03-03 15:38:36.171 I/ContentLaunchSvc( 2253): HOME: success=true
+03-03 15:38:38.187 I/ContentLaunchSvc( 2253): Step: Force-stopping com.wbd.stream
+03-03 15:38:39.288 I/ContentLaunchSvc( 2253): HBO Max: Normal launch + profile + featured
+03-03 15:38:39.362 I/ContentLaunchSvc( 2253): HBO Max: Waiting 25s for cold start...
+03-03 15:39:04.453 I/ContentLaunchSvc( 2253): HBO profile select: success=true
+03-03 15:39:12.549 I/ContentLaunchSvc( 2253): HBO play featured: success=true
+03-03 15:39:18.374 I/ContentLaunchSvc( 2253): HBO force play: success=true
+03-03 15:39:22.084 I/ContentLaunchSvc( 2253): HBO Max: Done
+03-03 15:39:22.084 I/ContentLaunchSvc( 2253): === LAUNCH COMPLETE: com.wbd.stream ===
+03-03 15:39:22.096 I/ContentLaunchSvc( 2253): ContentLaunchService destroyed
+03-03 15:41:43.608 I/ContentLaunchSvc( 2253): ContentLaunchService started as foreground
+03-03 15:41:43.697 I/ContentLaunchSvc( 2253): === LAUNCH START: com.wbd.stream ===
+03-03 15:41:43.697 I/ContentLaunchSvc( 2253): Deep link: https://play.max.com/search?q=Friends
+03-03 15:41:43.758 I/ContentLaunchSvc( 2253): Step: Going HOME for clean state
+03-03 15:41:43.915 I/ContentLaunchSvc( 2253): HOME: success=true
+03-03 15:41:45.959 I/ContentLaunchSvc( 2253): Step: Force-stopping com.wbd.stream
+03-03 15:41:47.107 I/ContentLaunchSvc( 2253): HBO Max: Search mode for 'Friends'
+03-03 15:41:47.150 I/ContentLaunchSvc( 2253): Deep link sent: https://play.max.com/search?q=Friends -> com.wbd.stream
+03-03 15:41:47.150 I/ContentLaunchSvc( 2253): HBO Max: Waiting 15s (WebView cold start)...
+03-03 15:42:02.236 I/ContentLaunchSvc( 2253): HBO profile select: success=true
+03-03 15:42:20.730 I/ContentLaunchSvc( 2253): HBO RIGHT: success=true
+03-03 15:42:21.027 I/ContentLaunchSvc( 2253): HBO RIGHT: success=true
+03-03 15:42:21.308 I/ContentLaunchSvc( 2253): HBO RIGHT: success=true
+03-03 15:42:21.591 I/ContentLaunchSvc( 2253): HBO RIGHT: success=true
+03-03 15:42:21.876 I/ContentLaunchSvc( 2253): HBO RIGHT: success=true
+03-03 15:42:22.153 I/ContentLaunchSvc( 2253): HBO RIGHT: success=true
+03-03 15:42:22.440 I/ContentLaunchSvc( 2253): HBO open show: success=true
+03-03 15:42:27.521 I/ContentLaunchSvc( 2253): HBO play: success=true
+03-03 15:42:30.522 I/ContentLaunchSvc( 2253): HBO Max: Done
+03-03 15:42:30.522 I/ContentLaunchSvc( 2253): === LAUNCH COMPLETE: com.wbd.stream ===
+03-03 15:42:30.538 I/ContentLaunchSvc( 2253): ContentLaunchService destroyed
+03-03 15:52:59.657 I/ContentLaunchSvc( 2253): ContentLaunchService started as foreground
+03-03 15:52:59.729 I/ContentLaunchSvc( 2253): === LAUNCH START: com.hulu.livingroomplus ===
+03-03 15:52:59.730 I/ContentLaunchSvc( 2253): Deep link: https://www.hulu.com/search?q=Paradise
+03-03 15:52:59.777 I/ContentLaunchSvc( 2253): Step: Going HOME for clean state
+03-03 15:52:59.880 I/ContentLaunchSvc( 2253): HOME: success=true
+03-03 15:53:01.883 I/ContentLaunchSvc( 2253): Step: Force-stopping com.hulu.livingroomplus
+03-03 15:53:03.025 I/ContentLaunchSvc( 2253): Hulu: Deep link + 3x CENTER
+03-03 15:53:03.060 I/ContentLaunchSvc( 2253): Deep link sent: https://www.hulu.com/search?q=Paradise -> com.hulu.livingroomplus
+03-03 15:53:03.060 I/ContentLaunchSvc( 2253): Hulu: Waiting 25s for cold start...
+03-03 15:53:28.142 I/ContentLaunchSvc( 2253): Hulu profile: success=true
+03-03 15:53:31.220 I/ContentLaunchSvc( 2253): Hulu select: success=true
+03-03 15:53:41.305 I/ContentLaunchSvc( 2253): Hulu play: success=true
+03-03 15:53:44.307 I/ContentLaunchSvc( 2253): Hulu: Done
+03-03 15:53:44.307 I/ContentLaunchSvc( 2253): === LAUNCH COMPLETE: com.hulu.livingroomplus ===
+03-03 15:53:44.316 I/ContentLaunchSvc( 2253): ContentLaunchService destroyed
+03-03 15:58:02.961 I/ContentLaunchSvc( 2253): ContentLaunchService started as foreground
+03-03 15:58:03.032 I/ContentLaunchSvc( 2253): === LAUNCH START: com.disney.disneyplus ===
+03-03 15:58:03.032 I/ContentLaunchSvc( 2253): Deep link: https://www.disneyplus.com/search?q=The+Suite+Life+on+Deck
+03-03 15:58:03.096 I/ContentLaunchSvc( 2253): Step: Going HOME for clean state
+03-03 15:58:03.230 I/ContentLaunchSvc( 2253): HOME: success=true
+03-03 15:58:05.314 I/ContentLaunchSvc( 2253): Step: Force-stopping com.disney.disneyplus
+03-03 15:58:06.412 I/ContentLaunchSvc( 2253): Disney+: Search mode for 'The Suite Life on Deck' (PIN bypassed via search URL)
+03-03 15:58:06.467 I/ContentLaunchSvc( 2253): Deep link sent: https://www.disneyplus.com/search?q=The+Suite+Life+on+Deck -> com.disney.disneyplus
+03-03 15:58:06.467 I/ContentLaunchSvc( 2253): Disney+: Waiting 30s for cold start...
+03-03 15:58:36.566 I/ContentLaunchSvc( 2253): D+ kbd ↓: success=true
+03-03 15:58:36.801 I/ContentLaunchSvc( 2253): D+ kbd ↓: success=true
+03-03 15:58:37.040 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:58:37.286 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:58:37.525 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:58:37.763 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:58:38.003 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:58:38.256 I/ContentLaunchSvc( 2253): D+ kbd 't': success=true
+03-03 15:58:38.548 I/ContentLaunchSvc( 2253): D+ kbd ↑: success=true
+03-03 15:58:38.817 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:58:39.335 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:58:39.996 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:58:40.232 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:58:40.476 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:58:40.712 I/ContentLaunchSvc( 2253): D+ kbd 'h': success=true
+03-03 15:58:41.018 I/ContentLaunchSvc( 2253): D+ kbd ↑: success=true
+03-03 15:58:41.304 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:58:41.839 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:58:42.680 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:58:42.952 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:58:43.201 I/ContentLaunchSvc( 2253): D+ kbd 'e': success=true
+03-03 15:58:43.541 I/ContentLaunchSvc( 2253): D+ kbd ↓: success=true
+03-03 15:58:43.846 I/ContentLaunchSvc( 2253): D+ kbd ↓: success=true
+03-03 15:58:44.586 I/ContentLaunchSvc( 2253): D+ kbd 's': success=true
+03-03 15:58:45.159 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:58:45.535 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:58:46.266 I/ContentLaunchSvc( 2253): D+ kbd 'u': success=true
+03-03 15:58:46.591 I/ContentLaunchSvc( 2253): D+ kbd ↑: success=true
+03-03 15:58:47.133 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:58:48.036 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:58:48.283 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:58:48.523 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:58:48.820 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:58:49.066 I/ContentLaunchSvc( 2253): D+ kbd 'i': success=true
+03-03 15:58:49.383 I/ContentLaunchSvc( 2253): D+ kbd ↓: success=true
+03-03 15:58:49.752 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:58:50.426 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:58:50.838 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:58:51.115 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:58:51.364 I/ContentLaunchSvc( 2253): D+ kbd 't': success=true
+03-03 15:58:51.689 I/ContentLaunchSvc( 2253): D+ kbd ↑: success=true
+03-03 15:58:52.024 I/ContentLaunchSvc( 2253): D+ kbd ↑: success=true
+03-03 15:58:52.427 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:58:53.099 I/ContentLaunchSvc( 2253): D+ kbd 'e': success=true
+03-03 15:58:53.402 I/ContentLaunchSvc( 2253): D+ kbd ↓: success=true
+03-03 15:58:53.721 I/ContentLaunchSvc( 2253): D+ kbd 'l': success=true
+03-03 15:58:54.262 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:58:54.725 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:58:54.984 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:58:55.248 I/ContentLaunchSvc( 2253): D+ kbd 'i': success=true
+03-03 15:58:55.581 I/ContentLaunchSvc( 2253): D+ kbd ↑: success=true
+03-03 15:58:55.894 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:58:56.392 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:58:56.659 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:58:56.926 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:58:57.182 I/ContentLaunchSvc( 2253): D+ kbd 'f': success=true
+03-03 15:58:57.487 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:58:57.817 I/ContentLaunchSvc( 2253): D+ kbd 'e': success=true
+03-03 15:58:58.188 I/ContentLaunchSvc( 2253): D+ kbd ↓: success=true
+03-03 15:58:58.571 I/ContentLaunchSvc( 2253): D+ kbd ↓: success=true
+03-03 15:58:58.924 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:58:59.179 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:58:59.424 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:58:59.679 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:58:59.936 I/ContentLaunchSvc( 2253): D+ kbd 'o': success=true
+03-03 15:59:00.259 I/ContentLaunchSvc( 2253): D+ kbd ↑: success=true
+03-03 15:59:00.544 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:59:00.905 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:59:01.335 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:59:01.588 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:59:01.851 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:59:02.101 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:59:02.347 I/ContentLaunchSvc( 2253): D+ kbd 'n': success=true
+03-03 15:59:02.664 I/ContentLaunchSvc( 2253): D+ kbd ↑: success=true
+03-03 15:59:02.953 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:59:03.431 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:59:03.752 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:59:04.009 I/ContentLaunchSvc( 2253): D+ kbd 'd': success=true
+03-03 15:59:04.322 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:59:04.621 I/ContentLaunchSvc( 2253): D+ kbd 'e': success=true
+03-03 15:59:05.132 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:59:05.555 I/ContentLaunchSvc( 2253): D+ kbd ←: success=true
+03-03 15:59:06.092 I/ContentLaunchSvc( 2253): D+ kbd 'c': success=true
+03-03 15:59:06.402 I/ContentLaunchSvc( 2253): D+ kbd ↓: success=true
+03-03 15:59:06.724 I/ContentLaunchSvc( 2253): D+ kbd →: success=true
+03-03 15:59:07.005 I/ContentLaunchSvc( 2253): D+ kbd 'k': success=true
+03-03 15:59:07.206 I/ContentLaunchSvc( 2253): Disney+ keyboard: typed 'thesuitelifeondeck', ended at col=3
+03-03 15:59:09.322 I/ContentLaunchSvc( 2253): D+ RIGHT: success=true
+03-03 15:59:09.644 I/ContentLaunchSvc( 2253): D+ RIGHT: success=true
+03-03 15:59:09.990 I/ContentLaunchSvc( 2253): D+ RIGHT: success=true
+03-03 15:59:10.317 I/ContentLaunchSvc( 2253): D+ RIGHT: success=true
+03-03 15:59:10.681 I/ContentLaunchSvc( 2253): D+ open show: success=true
+03-03 15:59:18.823 I/ContentLaunchSvc( 2253): D+ play: success=true
+03-03 15:59:21.827 I/ContentLaunchSvc( 2253): Disney+: Done
+03-03 15:59:21.827 I/ContentLaunchSvc( 2253): === LAUNCH COMPLETE: com.disney.disneyplus ===
+03-03 15:59:21.853 I/ContentLaunchSvc( 2253): ContentLaunchService destroyed
+03-03 16:01:02.617 I/ContentLaunchSvc( 2253): ContentLaunchService started as foreground
+03-03 16:01:02.687 I/ContentLaunchSvc( 2253): === LAUNCH START: com.cbs.ott ===
+03-03 16:01:02.687 I/ContentLaunchSvc( 2253): Deep link: https://www.paramountplus.com/search/?q=Blue+Bloods
+03-03 16:01:02.744 I/ContentLaunchSvc( 2253): Step: Going HOME for clean state
+03-03 16:01:02.857 I/ContentLaunchSvc( 2253): HOME: success=true
+03-03 16:01:04.881 I/ContentLaunchSvc( 2253): Step: Force-stopping com.cbs.ott
+03-03 16:01:05.987 I/ContentLaunchSvc( 2253): Paramount+: Search for 'Blue Bloods'
+03-03 16:01:06.046 I/ContentLaunchSvc( 2253): Deep link sent: https://www.paramountplus.com/search/?q=Blue+Bloods -> com.cbs.ott
+03-03 16:01:06.046 I/ContentLaunchSvc( 2253): Paramount+: Waiting 20s for cold start...
+03-03 16:01:26.148 I/ContentLaunchSvc( 2253): P+ profile select: success=true
+03-03 16:01:41.928 I/ContentLaunchSvc( 2253): SPACE between words: success=true
+03-03 16:01:48.225 I/ContentLaunchSvc( 2253): P+ RIGHT: success=true
+03-03 16:01:48.535 I/ContentLaunchSvc( 2253): P+ RIGHT: success=true
+03-03 16:01:48.834 I/ContentLaunchSvc( 2253): P+ RIGHT: success=true
+03-03 16:01:49.122 I/ContentLaunchSvc( 2253): P+ RIGHT: success=true
+03-03 16:01:49.416 I/ContentLaunchSvc( 2253): P+ RIGHT: success=true
+03-03 16:01:49.729 I/ContentLaunchSvc( 2253): P+ RIGHT: success=true
+03-03 16:01:50.005 I/ContentLaunchSvc( 2253): P+ open show: success=true
+03-03 16:01:55.545 I/ContentLaunchSvc( 2253): P+ WATCH NOW: success=true
+03-03 16:01:58.566 I/ContentLaunchSvc( 2253): Paramount+: Done
+03-03 16:01:58.566 I/ContentLaunchSvc( 2253): === LAUNCH COMPLETE: com.cbs.ott ===
+03-03 16:01:59.018 I/ContentLaunchSvc( 2253): ContentLaunchService destroyed

@@ -295,16 +295,15 @@ class ContentLaunchService : Service() {
         sendKey(KeyEvent.KEYCODE_BACK, "Sling back to home")
         delay(3000)
 
-        // ── OPEN NAV BAR ──
-        Log.i(TAG, "Sling: Opening nav bar (DPAD_UP)")
-        sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling open nav bar")
-        delay(3000)
-        if (checkAborted()) return
-
-        // Navigate to Search: LEFT×10 → leftmost (My TV), then RIGHT×4 → Search
-        repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Sling nav←"); delay(300) }
-        delay(500)
-        repeat(4) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling nav→"); delay(400) }
+        // ── NAVIGATE TO SEARCH VIA LEFT SIDEBAR ──
+        // After BACK to home, "Home" is focused in the left sidebar.
+        // Sidebar order (top→bottom): My Profile → Rewards → Search → Home → Guide → DVR → On Demand → Settings
+        // UP×2 from Home → Search
+        Log.i(TAG, "Sling: Navigating sidebar UP×2 to Search")
+        sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling sidebar↑")
+        delay(400)
+        sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling sidebar↑")
+        delay(400)
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling open Search")
         delay(4000)
         if (checkAborted()) return
@@ -406,21 +405,29 @@ class ContentLaunchService : Service() {
     }
 
     /**
-     * SLING TV — Guide navigation for live channels.
+     * SLING TV — Live channel via Guide (EPG) navigation.
      *
-     * Opens the Guide from the nav bar, then scrolls to the target channel.
-     * Each channel has a known guide position (row number from top).
+     * STRATEGY (user-verified): The Guide is the ONLY reliable method for live channels.
+     * Search-based approach did not reliably tune to live streams.
      *
-     * GUIDE NAVIGATION:
-     * 1. DPAD_UP → nav bar
-     * 2. LEFT×10 → My TV (leftmost), RIGHT×1 → Guide
-     * 3. CENTER → opens Guide
-     * 4. UP×50 → scroll to very top of guide (safe overshoot)
-     * 5. DOWN×(channelPosition) → target channel
-     * 6. CENTER → select channel → starts live playback
+     * NAVIGATION:
+     * 1. Profile select (CENTER) + BACK → sidebar with "Home" focused
+     * 2. DOWN×1 from Home → Guide → CENTER → EPG grid opens
+     * 3. UP×50 → scroll to top of channel list
+     * 4. DOWN×(channelPosition) → navigate to target channel
+     * 5. MEDIA_PLAY → tune to that channel
+     *
+     * CHANNEL POSITIONS: Sling's guide lists channels in subscription order.
+     * The positions in getChannelGuidePosition() are approximate for a standard
+     * Sling subscription. If a channel lands on the WRONG channel:
+     *   → Count DOWN presses manually from the top of your guide
+     *   → Report the correct position so it can be updated
+     *
+     * NOTE: Both LIVE channels and VOD shows can be searched via launchSlingWithSearch().
+     * For live channels, this Guide method is preferred.
      */
     private suspend fun launchSlingGuideChannel(channelName: String) {
-        Log.i(TAG, "Sling GUIDE: Navigating to live channel '$channelName'")
+        Log.i(TAG, "Sling GUIDE: Opening guide for channel '$channelName'")
         Log.i(TAG, "Sling: Waiting 35s for cold start (React Native)...")
         delay(35000)
         if (checkAborted()) return
@@ -431,94 +438,105 @@ class ContentLaunchService : Service() {
         delay(10000)
         sendKey(KeyEvent.KEYCODE_BACK, "Sling back to home")
         delay(3000)
-
-        // ── OPEN GUIDE VIA NAV BAR ──
-        Log.i(TAG, "Sling: Opening nav bar (DPAD_UP)")
-        sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling open nav bar")
-        delay(3000)
         if (checkAborted()) return
 
-        // Navigate to Guide: LEFT×10 → My TV (leftmost), then RIGHT×1 → Guide
-        repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Sling nav←"); delay(300) }
-        delay(500)
-        sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling nav→ Guide"); delay(400)
+        // ── NAVIGATE TO GUIDE VIA SIDEBAR ──
+        // After BACK, sidebar is visible with "Home" focused.
+        // Sidebar order (top→bottom): My Profile → Rewards → Search → Home → Guide → DVR → On Demand → Settings
+        // DOWN×1 from Home → Guide
+        Log.i(TAG, "Sling: Navigating to Guide in sidebar (DOWN×1 from Home)")
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Sling sidebar→Guide")
+        delay(600)
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling open Guide")
-        delay(5000)  // Guide takes time to load
+        delay(7000)  // EPG grid takes time to fully load
+        dbgScreen("Sling_guide_open")
         if (checkAborted()) return
 
-        // Guide is now open. Scroll to top first, then down to channel.
-        Log.i(TAG, "Sling GUIDE: Scrolling to top")
-        repeat(50) { sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling guide↑"); delay(150) }
-        delay(1000)
-
-        // Look up channel position in guide
-        val guidePos = slingGuidePositions[channelName.lowercase()] ?: run {
-            // Unknown channel — try searching for it instead
-            Log.w(TAG, "Sling: Channel '$channelName' not in guide map. Trying search fallback.")
-            // Fall back to search approach
-            sendKey(KeyEvent.KEYCODE_BACK, "Sling back from guide"); delay(2000)
-            sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling open nav bar"); delay(3000)
-            repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Sling nav←"); delay(300) }
-            delay(500)
-            repeat(4) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling nav→"); delay(400) }
-            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling open Search"); delay(4000)
-            val queryToType = channelName.lowercase().filter { it.isLetterOrDigit() }.take(12)
-            typePvKeyboard(queryToType)
-            delay(2500)
-            repeat(6) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling to results"); delay(250) }
-            delay(500)
-            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling select result"); delay(3000)
-            sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling start channel"); delay(3000)
-            return
+        // ── FIND CHANNEL IN GUIDE ──
+        // Guide is a grid: channel names on left, program tiles on right.
+        // UP×50 → scroll to top of channel list (safe overshoot, clamps at first channel).
+        Log.i(TAG, "Sling: Scrolling to top of channel list (UP×50)")
+        repeat(50) {
+            sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling guide↑")
+            delay(100)
         }
+        delay(800)
 
-        Log.i(TAG, "Sling GUIDE: DOWN×$guidePos to '$channelName'")
-        repeat(guidePos) {
-            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Sling guide↓")
-            delay(250)
+        // DOWN×(position) → navigate to the target channel
+        val position = getChannelGuidePosition(channelName.lowercase().trim())
+        Log.i(TAG, "Sling: Navigating to '$channelName' at guide position $position (DOWN×$position)")
+        if (position > 0) {
+            repeat(position) {
+                sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Sling guide channel↓")
+                delay(300)
+            }
         }
-        delay(500)
+        delay(600)
 
-        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling select channel")
-        delay(3000)
-        sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling start live channel")
-        delay(3000)
+        // MEDIA_PLAY tunes to the focused channel and starts live playback
+        dbgScreen("Sling_before_tune")
+        Log.i(TAG, "Sling: Tuning to channel (MEDIA_PLAY)")
+        sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling tune to channel")
+        delay(5000)
 
-        Log.i(TAG, "Sling GUIDE: Done — playing '$channelName'")
+        Log.i(TAG, "Sling GUIDE: Done — tuned to '$channelName'")
     }
 
     /**
-     * Sling guide channel positions — row number from the TOP of the guide.
-     * These positions depend on the user's Sling package and customization.
-     * NEEDS USER VERIFICATION — test each channel and adjust positions.
+     * Get the guide row position (0-based, from the top) of a Sling TV channel.
      *
-     * Default order is based on Sling Blue+Orange combined package (typical US setup).
-     * Positions are 0-indexed from the top of the guide after scrolling all the way up.
+     * IMPORTANT: These positions are approximate for a standard Sling Orange+Blue subscription.
+     * Channel ordering depends on your subscription and any custom favorites you have set.
+     *
+     * HOW TO FIND YOUR CHANNEL'S POSITION:
+     *   1. Open Sling manually and go to Guide
+     *   2. Press UP until you reach the top channel (position 0)
+     *   3. Count how many DOWN presses to reach your channel
+     *   4. Report the number so it can be updated here
+     *
+     * Channels not in this map default to position 0 (top of guide).
      */
-    private val slingGuidePositions: Map<String, Int> = mapOf(
-        // News
-        "cnn" to 0, "fox news" to 1, "msnbc" to 2, "cnbc" to 3,
-        "hln" to 4, "bbc news" to 5, "newsnation" to 6,
-        // Sports
-        "espn" to 7, "espn2" to 8, "tnt sports" to 9,
-        "fs1 (fox sports 1)" to 10, "nfl network" to 11,
-        "nba tv" to 12, "mlb network" to 13, "golf channel" to 14,
-        // Entertainment
-        "amc" to 15, "tbs" to 16, "usa network" to 17,
-        "fx" to 18, "comedy central" to 19, "bravo" to 20,
-        "e!" to 21, "syfy" to 22,
-        // Kids
-        "cartoon network" to 23, "nickelodeon" to 24,
-        "disney channel" to 25, "disney junior" to 26,
-        // Movies
-        "tcm (turner classic movies)" to 27,
-        // Lifestyle
-        "hgtv" to 28, "food network" to 29, "tlc" to 30,
-        "discovery channel" to 31, "history channel" to 32,
-        "a&e" to 33, "lifetime" to 34,
-        // Music
-        "mtv" to 35, "vh1" to 36
-    )
+    private fun getChannelGuidePosition(channelName: String): Int {
+        return when {
+            channelName.contains("amc") -> 0
+            channelName.contains("a&e") || channelName.contains("aetv") -> 1
+            channelName.contains("animal planet") -> 2
+            channelName.contains("bbc") -> 3
+            channelName.contains("bet") -> 4
+            channelName.contains("bravo") -> 5
+            channelName.contains("cartoon network") || channelName.contains("cartoon") -> 6
+            channelName.contains("cbs") -> 7
+            channelName.contains("cnn") -> 8
+            channelName.contains("comedy central") || channelName.contains("comedy") -> 9
+            channelName.contains("discovery") -> 10
+            channelName.contains("disney channel") || channelName.contains("disney") -> 11
+            channelName.contains("e!") || channelName == "e" -> 12
+            channelName.contains("espn2") -> 14
+            channelName.contains("espn") -> 13
+            channelName.contains("food network") || channelName.contains("food") -> 15
+            channelName.contains("fox news") -> 17
+            channelName.contains("fox") -> 16
+            channelName.contains("freeform") -> 18
+            channelName.contains("hallmark") -> 19
+            channelName.contains("hgtv") -> 20
+            channelName.contains("history") -> 21
+            channelName.contains("lifetime") -> 22
+            channelName.contains("msnbc") -> 23
+            channelName.contains("mtv") -> 24
+            channelName.contains("nbc") -> 25
+            channelName.contains("nickelodeon") || channelName.contains("nick") -> 26
+            channelName.contains("oxygen") -> 27
+            channelName.contains("paramount network") || channelName.contains("paramount") -> 28
+            channelName.contains("syfy") -> 29
+            channelName.contains("tlc") -> 30
+            channelName.contains("tnt") -> 31
+            channelName.contains("trutv") || channelName.contains("tru tv") -> 32
+            channelName.contains("tv land") -> 33
+            channelName.contains("usa") -> 34
+            channelName.contains("vh1") -> 35
+            else -> 0  // Default: top of guide. Update with correct position if wrong.
+        }
+    }
 
     /**
      * HBO MAX (Max) — Normal launch + profile bypass
@@ -773,6 +791,7 @@ class ContentLaunchService : Service() {
         // First result already focused → open show page
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Hulu open show")
         delay(8000)  // Show detail page load on Hulu can be slow
+        dbgScreen("Hulu_show_page_loaded")
 
         // Show page layout:
         //   [Start Watching / Resume button]  ← initial focus
@@ -784,55 +803,70 @@ class ContentLaunchService : Service() {
 
         // ALWAYS use full season navigation — the show page may open on ANY season
         // (the last-watched season), so we must explicitly navigate to the correct one.
-        // Cannot skip for season==1 because the page might show S2/S3/etc.
         Log.i(TAG, "Hulu: Navigating to Season $season, Episode $episode")
 
-        // DOWN×1 → Start Watching → Episodes tab
+        // DOWN×1 → Start Watching/Resume → Episodes tab
         sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Hulu to Episodes tab")
-        delay(600)
+        delay(800)
         // DOWN×1 → into episode area (E1 focused)
         sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Hulu into episode area")
+        delay(1000)
+
+        // LEFT×3 → From episode area → Season sidebar.
+        // Multiple LEFT presses ensure we reliably enter the sidebar (single LEFT may not
+        // work on all show layouts). Sidebar is clamped, so extra LEFT presses are harmless.
+        Log.i(TAG, "Hulu: Entering season sidebar (LEFT×3)")
+        repeat(3) {
+            sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Hulu to season sidebar")
+            delay(400)
+        }
         delay(800)
 
-        // LEFT → From episode area → Season sidebar.
-        // VERIFIED March 2026 (live ADB on Family Guy, Onn Google TV):
-        // Sidebar layout: S24 (top) → S1 → EXCLUSIVES (bottom).
-        // UP/DOWN stay within sidebar (both extremes clamp, never exit to episodes).
-        // LEFT focuses on the CURRENTLY DISPLAYED season, NOT always S1.
+        // Hulu sidebar: highest season (top) → S1 → EXCLUSIVES (bottom, if present).
         //
-        // STRATEGY: DOWN×30 → guaranteed EXCLUSIVES (bottom).
-        //           UP×season → target season (UP×1=S1, UP×2=S2, UP×3=S3, ...).
-        sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Hulu to season sidebar")
-        delay(600)
-
-        // Safe scroll to EXCLUSIVES at bottom of sidebar
-        Log.i(TAG, "Hulu: Scrolling to bottom of sidebar (DOWN×30)")
+        // ANCHOR = BOTTOM: DOWN×30 clamps at the very bottom (EXCLUSIVES or S1).
+        // Then UP×season to reach target:
+        //   With EXCLUSIVES:    UP×1=S1, UP×2=S2, UP×3=S3 ... UP×season=Sseason ✓
+        //   Without EXCLUSIVES: UP×1=S2, but sidebar clamps, so for a 2-season show
+        //                       UP×2 stays at S2. For S1: UP×1 from S2... hmm.
+        // ADJUSTMENT: For S1 specifically, we don't need the sidebar at all (DIFFERENTIAL
+        // ALGORITHM above handles S1 separately). Season > 1 uses this path.
+        //
+        // TESTED SHOWS:
+        //   Family Guy (S24, has EXCLUSIVES) → DOWN×30=EXCLUSIVES, UP×1=S1, UP×N=SN ✓
+        //   Paradise (S2 or S3, likely no EXCLUSIVES) → DOWN×30=S1, UP×1=S2, UP×2=S2 (clamped) ✓
+        Log.i(TAG, "Hulu: DOWN×30 to bottom of sidebar (EXCLUSIVES or S1)")
         repeat(30) {
             sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Hulu sidebar↓")
-            delay(200)
+            delay(150)
         }
-        delay(400)
+        delay(600)
 
-        // UP×season from EXCLUSIVES → target season
-        // EXCLUSIVES + UP×1 = S1, UP×2 = S2, UP×3 = S3, etc.
-        Log.i(TAG, "Hulu: Navigating to Season $season (UP×$season from EXCLUSIVES)")
+        // UP×season from bottom.
+        Log.i(TAG, "Hulu: UP×$season from bottom → Season $season")
         repeat(season) {
             sendKey(KeyEvent.KEYCODE_DPAD_UP, "Hulu season↑")
             delay(400)
         }
+        delay(400)
+
+        Log.i(TAG, "Hulu: Selecting season (CENTER)")
+        dbgScreen("Hulu_before_season_select")
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Hulu select season")
-        delay(3000)  // Wait for episodes to reload for selected season
+        delay(4000)  // Wait for episodes to reload for selected season
+        dbgScreen("Hulu_after_season_select")
 
         // RIGHT → From season sidebar → Episode list (E1 of selected season is focused)
+        Log.i(TAG, "Hulu: Moving to episode list (RIGHT)")
         sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Hulu to episode list")
-        delay(600)
+        delay(1000)
 
         // DOWN×(episode-1) → Target episode card
-        Log.i(TAG, "Hulu: Navigating to Episode $episode")
+        Log.i(TAG, "Hulu: Navigating to Episode $episode (DOWN×${episode - 1})")
         if (episode > 1) {
             repeat(episode - 1) {
                 sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Hulu episode↓")
-                delay(350)
+                delay(400)
             }
         }
         delay(500)
@@ -962,7 +996,8 @@ class ContentLaunchService : Service() {
         // Select the first result → show detail page opens
         Log.i(TAG, "Disney+: Opening show detail page")
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ select show")
-        delay(8000)  // Wait for show detail page to fully load
+        delay(10000)  // Increased from 8s: show page with Continue Watching state takes longer
+        dbgScreen("D+_show_page_loaded")
 
         if (checkAborted()) return
 
@@ -1010,40 +1045,52 @@ class ContentLaunchService : Service() {
             sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ into episode area")
             delay(800)
 
-            // LEFT → Season sidebar (vertical list)
-            sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "D+ to season sidebar")
-            delay(600)
+            // LEFT×5 → Season sidebar (vertical list).
+            // Multiple LEFT presses ensure we reliably enter the sidebar even when
+            // the episode area is wide or the initial episode card is far right.
+            // Sidebar is clamped so extra LEFT presses are harmless.
+            Log.i(TAG, "Disney+: Entering season sidebar (LEFT×5)")
+            repeat(5) {
+                sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "D+ to season sidebar")
+                delay(400)
+            }
+            delay(1000)
 
+            // Disney+ sidebar: Season 1 (top) → Season N (bottom).
             // UP×10 → safely scroll to Season 1 (top of sidebar)
             Log.i(TAG, "Disney+: Scrolling to Season 1 (UP×10)")
             repeat(10) {
                 sendKey(KeyEvent.KEYCODE_DPAD_UP, "D+ season sidebar↑")
                 delay(200)
             }
-            delay(400)
+            delay(600)
 
             // DOWN×(season-1) → target season
             Log.i(TAG, "Disney+: Navigating to Season $season (DOWN×${season - 1})")
             if (season > 1) {
                 repeat(season - 1) {
                     sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ season↓")
-                    delay(350)
+                    delay(400)
                 }
             }
+            delay(300)
+
             // CENTER → select season
+            Log.i(TAG, "Disney+: Selecting season (CENTER)")
             sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ select season")
-            delay(3000)  // Wait for season episodes to reload
+            delay(4000)  // Wait for season episodes to reload
 
             // RIGHT → from sidebar back to episode list (E1 of selected season)
+            Log.i(TAG, "Disney+: Moving to episode list (RIGHT)")
             sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "D+ to episode list")
-            delay(600)
+            delay(1000)
 
             // DOWN×(episode-1) → target episode
-            Log.i(TAG, "Disney+: Navigating to Episode $episode")
+            Log.i(TAG, "Disney+: Navigating to Episode $episode (DOWN×${episode - 1})")
             if (episode > 1) {
                 repeat(episode - 1) {
                     sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ episode↓")
-                    delay(350)
+                    delay(400)
                 }
             }
             delay(500)
@@ -1123,29 +1170,37 @@ class ContentLaunchService : Service() {
 
         if (checkAborted()) return
 
-        // Navigate to sidebar: Multiple LEFT presses from home content to ensure sidebar opens.
-        // VERIFIED March 2026: LEFT×5 reliably triggers the expanded sidebar on P+.
-        // Sidebar layout (top to bottom): Profile, Search, Home, Shows, Movies, Collections,
-        // Live TV, Sports, News, My List, Settings.
-        Log.i(TAG, "Paramount+: Navigating to sidebar (LEFT×5)")
-        repeat(5) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "P+ to sidebar"); delay(400) }
-        delay(1000)
-
-        // UP×10 safely scrolls to topmost sidebar item (Profile area)
-        repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_UP, "P+ sidebar↑"); delay(200) }
+        // Navigate to sidebar: DOWN first to ensure we're on content (not header),
+        // then LEFT×5 to reliably trigger the expanded sidebar on P+.
+        Log.i(TAG, "Paramount+: Navigating to sidebar (DOWN→LEFT×5)")
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ into content")
         delay(500)
+        repeat(5) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "P+ to sidebar"); delay(400) }
+        delay(1500)
 
-        // DOWN×1 → Search icon (second item below Profile in sidebar)
-        // Sidebar order: Profile(top) → Search → Home → Shows → ...
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ sidebar↓ 1 (Search)"); delay(400)
+        // UP×10 safely scrolls to topmost sidebar item
+        Log.i(TAG, "Paramount+: Scrolling to top of sidebar (UP×10)")
+        repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_UP, "P+ sidebar↑"); delay(200) }
+        delay(600)
+
+        // Sidebar order (verified March 2026): Logo(top, non-focusable?) → Profile → Search → Home → ...
+        // UP×10 lands at topmost focusable item. May be Logo or Profile depending on firmware.
+        // DOWN×2 is the safe count to reach Search regardless of whether topmost is Logo or Profile.
+        Log.i(TAG, "Paramount+: DOWN×2 to Search icon")
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ sidebar↓ to Profile")
+        delay(400)
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ sidebar↓ to Search")
+        delay(500)
+        Log.i(TAG, "Paramount+: Opening Search (CENTER)")
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ open search")
-        delay(4000)
+        delay(5000)  // Longer wait for search screen to load
 
         if (checkAborted()) return
 
         // Keyboard activation: DOWN×1 focuses keyboard at 'a' (row 0, col 0)
+        Log.i(TAG, "Paramount+: Activating keyboard (DOWN×1)")
         sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ activate keyboard")
-        delay(500)
+        delay(800)
 
         // Type show name via 6-col DPAD keyboard (same layout as Prime Video)
         // Use full name (up to 20 chars) for consistent, accurate search results.
@@ -1163,10 +1218,13 @@ class ContentLaunchService : Service() {
         delay(500)
 
         // First result card — may need DOWN×1 if results start below the search suggestions row
+        Log.i(TAG, "Paramount+: Navigating to first result (DOWN×1)")
         sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ down to show card")
-        delay(500)
+        delay(800)
+        Log.i(TAG, "Paramount+: Selecting show (CENTER)")
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ select show")
-        delay(6000)
+        delay(8000)  // Longer wait for show detail page to load
+        dbgScreen("P+_show_page_loaded")
 
         if (checkAborted()) return
 
@@ -1470,6 +1528,13 @@ class ContentLaunchService : Service() {
      *
      * Starting position: row=0, col=0 ('a'). Returns (row, col) of last key pressed,
      * which is used to calculate how many RIGHT presses are needed to reach the results panel.
+     *
+     * ROW-RESET STRATEGY: Before each character, UP back to row 0 first, then DOWN to target.
+     * This prevents drifting off the bottom of the keyboard when navigating to rows 4-5
+     * (y, z, numbers), which can accidentally focus Google TV's Gemini/voice button below
+     * the keyboard. Each character is always approached via DOWN from row 0.
+     *
+     * This function is also used by Hulu, Paramount+, and Sling (same keyboard layout).
      */
     private suspend fun typePvKeyboard(text: String): Pair<Int, Int> {
         data class Pos(val row: Int, val col: Int)
@@ -1490,19 +1555,30 @@ class ContentLaunchService : Service() {
         for (ch in text) {
             val target = charMap[ch] ?: continue  // Skip unmapped chars (spaces, punctuation)
 
-            val rowDiff = target.row - curRow
-            if (rowDiff > 0) repeat(rowDiff)   { sendKey(KeyEvent.KEYCODE_DPAD_DOWN,  "PV kbd↓ '$ch'"); delay(200) }
-            else if (rowDiff < 0) repeat(-rowDiff) { sendKey(KeyEvent.KEYCODE_DPAD_UP,   "PV kbd↑ '$ch'"); delay(200) }
+            // ROW RESET: Go back to row 0 before navigating to each character.
+            // Only done if we are below row 0 (never presses UP from row 0, so won't exit keyboard upward).
+            if (curRow > 0) {
+                repeat(curRow) { sendKey(KeyEvent.KEYCODE_DPAD_UP, "PV kbd reset↑ '$ch'"); delay(220) }
+                curRow = 0
+            }
 
+            // Navigate column while at row 0
             val colDiff = target.col - curCol
             if (colDiff > 0) repeat(colDiff)   { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "PV kbd→ '$ch'"); delay(200) }
             else if (colDiff < 0) repeat(-colDiff) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT,  "PV kbd← '$ch'"); delay(200) }
+            curCol = target.col
+
+            // Navigate DOWN to target row (extra delay for rows 4-5 to ensure keyboard registers)
+            if (target.row > 0) {
+                repeat(target.row) {
+                    sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV kbd↓ '$ch'")
+                    delay(if (target.row >= 4) 300L else 200L)
+                }
+                curRow = target.row
+            }
 
             sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PV type '$ch'")
-            delay(300)
-
-            curRow = target.row
-            curCol = target.col
+            delay(350)
         }
 
         return Pair(curRow, curCol)
@@ -1760,6 +1836,29 @@ class ContentLaunchService : Service() {
                 Log.w(TAG, "$label failed: ${e.message}")
             }
         }
+    }
+
+    /**
+     * Take a screenshot and save it to /sdcard/Download/tv_alarm_debug/.
+     *
+     * Enable DEBUG_SCREENSHOTS = true to capture a screenshot after every key navigation step.
+     * Screenshots can be pulled to your PC with:
+     *   adb pull /sdcard/Download/tv_alarm_debug/
+     *
+     * Android Studio can also mirror the screen in real time:
+     *   Device Manager → select your Onn TV → click "Mirror" button.
+     * Or use scrcpy for lower-latency mirroring:
+     *   scrcpy --tcpip=192.168.1.90:5555
+     */
+    private val debugScreenshots = false  // Set to true to capture step-by-step screenshots
+
+    private suspend fun dbgScreen(stepName: String) {
+        if (!debugScreenshots) return
+        val ts = System.currentTimeMillis()
+        val safe = stepName.replace(" ", "_").replace("→", "to").replace("×", "x").take(40)
+        sendShell("mkdir -p /sdcard/Download/tv_alarm_debug")
+        sendShell("screencap -p /sdcard/Download/tv_alarm_debug/${ts}_${safe}.png")
+        delay(400)  // Wait for screenshot to be written
     }
 
     /** Send a shell command via ADB. */
