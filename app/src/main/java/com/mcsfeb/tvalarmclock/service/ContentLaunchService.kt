@@ -155,6 +155,7 @@ class ContentLaunchService : Service() {
     ) {
         Log.i(TAG, "=== LAUNCH START: $packageName ===")
         Log.i(TAG, "searchQuery='$searchQuery' season=$seasonNumber episode=$episodeNumber")
+        Log.i("NAV_MONITOR", "APP_OPEN|$packageName|LAUNCH_START|query:$searchQuery|S$seasonNumber E$episodeNumber")
 
         // Step 1: Initialize ADB
         withContext(Dispatchers.IO) {
@@ -232,6 +233,7 @@ class ContentLaunchService : Service() {
         }
 
         Log.i(TAG, "=== LAUNCH COMPLETE: $packageName ===")
+        Log.i("NAV_MONITOR", "APP_OPEN|$packageName|LAUNCH_COMPLETE")
     }
 
     // =========================================================================
@@ -284,35 +286,68 @@ class ContentLaunchService : Service() {
         Log.i(TAG, "Sling: Waiting 35s for cold start (React Native)...")
         delay(35000)
         if (checkAborted()) return
+        dbgScreen("Sling_vod_cold_start")
 
-        // Profile picker: "Who's Watching?" shows on cold start (after force-stop).
-        // CENTER selects first profile ("My Profile"). After profile select, Sling may
-        // auto-play live TV (DRM-protected). BACK exits playback to home screen.
-        // DO NOT press CENTER on the HOME screen — clicks "recently viewed" content.
-        Log.i(TAG, "Sling: Selecting profile (CENTER) + BACK to home")
+        // Profile picker appears on cold start when multiple profiles exist (e.g. My Profile, Devo, Dina).
+        // CENTER selects the first/default profile. Sling then auto-plays live TV for ~10s.
+        // BACK exits live TV back to the Sling home screen.
+        Log.i(TAG, "Sling: Profile picker — pressing CENTER to select default profile")
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling select profile")
-        delay(10000)  // Wait for home/live TV to load after profile selection
+        delay(10000)
         sendKey(KeyEvent.KEYCODE_BACK, "Sling back to home")
         delay(3000)
+        dbgScreen("Sling_vod_home")
 
-        // ── NAVIGATE TO SEARCH VIA LEFT SIDEBAR ──
-        // After BACK to home, "Home" is focused in the left sidebar.
-        // Sidebar order (top→bottom): My Profile → Rewards → Search → Home → Guide → DVR → On Demand → Settings
-        // UP×2 from Home → Search
-        Log.i(TAG, "Sling: Navigating sidebar UP×2 to Search")
-        sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling sidebar↑")
-        delay(400)
-        sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling sidebar↑")
-        delay(400)
+        // ── NAVIGATE TO SEARCH VIA NAV BAR ──
+        // From home: UP×1 focuses the Search item in the top nav bar.
+        // Sidebar order (top→bottom): My Profile → Rewards → Search → Home → Guide
+        // UP×1 from Home → Search. UP×2 → Rewards. DO NOT press UP twice.
+        Log.i(TAG, "Sling: UP×1 to focus Search in nav bar")
+        sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling open nav bar → Search")
+        delay(600)
+        dbgScreen("Sling_vod_at_search")
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling open Search")
-        delay(4000)
+        delay(3000)
+        dbgScreen("Sling_vod_search_open")
         if (checkAborted()) return
 
-        // Type query via 6-col keyboard (full name for accurate results)
-        val queryToType = cleanQuery.lowercase().filter { it.isLetterOrDigit() }.take(20)
+        // Search opens with keyboard HIDDEN. "SHOW KEYBOARD" button is focused at top.
+        // Press CENTER to activate it → keyboard appears (A-Z 6-col grid, same as PvKeyboard).
+        Log.i(TAG, "Sling: Activating keyboard via SHOW KEYBOARD button")
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling SHOW KEYBOARD")
+        delay(1500)
+        dbgScreen("Sling_vod_keyboard_open")
+
+        // Keyboard opens with focus on 'O' (row 2, col 2 — center of the grid).
+        // Reset to 'A' (row 0, col 0) so typePvKeyboard() works from the correct starting position.
+        Log.i(TAG, "Sling: Resetting keyboard focus to 'A' (UP×2 + LEFT×2 from initial 'O')")
+        repeat(2) { sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling kbd reset↑"); delay(250) }
+        repeat(2) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Sling kbd reset←"); delay(250) }
+        delay(300)
+
+        // Sling's search engine tokenizes by word boundaries.
+        // Concatenating words (e.g. "thefirst48") returns NO results — it has no index entry for that token.
+        //
+        // Strategy: if the title ends with a pure number (e.g. "The First 48" → "48"),
+        //   use just the trailing number as the query. It's highly specific for numbered shows.
+        //   However, the channel (e.g. A&E) may appear as result #1, so skip it with DOWN×1.
+        // Otherwise: use the full alphanumeric string (works for single-word titles like "Monk").
+        val trailingNumber = cleanQuery.trim().split(" ").lastOrNull()
+            ?.takeIf { it.all { c -> c.isDigit() } && it.isNotEmpty() }
+        val queryToType: String
+        val resultOffset: Int
+        if (trailingNumber != null) {
+            queryToType = trailingNumber
+            resultOffset = 1  // Channel appears as result #1; show is result #2
+            Log.i(TAG, "Sling: Title ends with number — using trailing number '$queryToType' (skip ${resultOffset} channel result)")
+        } else {
+            queryToType = cleanQuery.lowercase().filter { it.isLetterOrDigit() }.take(20)
+            resultOffset = 0
+        }
         Log.i(TAG, "Sling: Typing '$queryToType'")
         val (_, endCol) = typePvKeyboard(queryToType)
         delay(3000)
+        dbgScreen("Sling_vod_typed")
         if (checkAborted()) return
 
         // RIGHT×(6-endCol) to jump from keyboard into results panel
@@ -320,10 +355,17 @@ class ContentLaunchService : Service() {
         Log.i(TAG, "Sling: RIGHT×$rightsToResults to results")
         repeat(rightsToResults) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling to results"); delay(250) }
         delay(500)
+        dbgScreen("Sling_vod_results")
 
-        // Select first result → show detail page
+        // Skip channel/non-show results if needed, then select the target show
+        if (resultOffset > 0) {
+            Log.i(TAG, "Sling: Skipping $resultOffset result(s) to reach show")
+            repeat(resultOffset) { sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Sling skip result"); delay(350) }
+            delay(300)
+        }
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling select result")
         delay(6000)  // Wait for show page to load
+        dbgScreen("Sling_vod_show_page")
 
         if (checkAborted()) return
 
@@ -339,10 +381,12 @@ class ContentLaunchService : Service() {
                 delay(500)
             }
             delay(500)
+            dbgScreen("Sling_vod_s1_episode_area")
 
             // LEFT×10 safe nudge to E1
             repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Sling nudge to E1"); delay(150) }
             delay(400)
+            dbgScreen("Sling_vod_s1_at_e1")
 
             // RIGHT×(episode-1) → target episode
             Log.i(TAG, "Sling: Navigating to Episode $episode")
@@ -353,6 +397,7 @@ class ContentLaunchService : Service() {
                 }
             }
             delay(500)
+            dbgScreen("Sling_vod_s1_ep_focused")
         } else {
             // ── MULTI-SEASON ──
             Log.i(TAG, "Sling: Multi-season — navigating to S${season}E${episode}")
@@ -363,10 +408,12 @@ class ContentLaunchService : Service() {
                 delay(500)
             }
             delay(500)
+            dbgScreen("Sling_vod_season_area")
 
             // LEFT×10 safe nudge to S1
             repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Sling nudge to S1"); delay(150) }
             delay(400)
+            dbgScreen("Sling_vod_at_s1")
 
             // RIGHT×(season-1) → target season
             Log.i(TAG, "Sling: Selecting Season $season")
@@ -374,8 +421,10 @@ class ContentLaunchService : Service() {
                 sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Sling season→")
                 delay(400)
             }
+            dbgScreen("Sling_vod_season_highlighted")
             sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling select season")
             delay(2000)
+            dbgScreen("Sling_vod_season_selected")
 
             // DOWN to episode row
             sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Sling to episodes")
@@ -384,6 +433,7 @@ class ContentLaunchService : Service() {
             // LEFT×10 safe nudge to E1
             repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Sling nudge to E1"); delay(150) }
             delay(400)
+            dbgScreen("Sling_vod_at_e1")
 
             // RIGHT×(episode-1) → target episode
             Log.i(TAG, "Sling: Navigating to Episode $episode")
@@ -394,8 +444,10 @@ class ContentLaunchService : Service() {
                 }
             }
             delay(500)
+            dbgScreen("Sling_vod_ep_focused")
         }
 
+        dbgScreen("Sling_vod_before_play")
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling play episode")
         delay(4000)
         sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling force play")
@@ -432,35 +484,43 @@ class ContentLaunchService : Service() {
         delay(35000)
         if (checkAborted()) return
 
-        // Profile picker on cold start — CENTER selects first profile, BACK exits any auto-play
-        Log.i(TAG, "Sling: Selecting profile (CENTER) + BACK to home")
+        // Profile picker appears on cold start when multiple profiles exist (e.g. My Profile, Devo, Dina).
+        // CENTER selects the first/default profile. Sling then auto-plays live TV for ~10s.
+        // BACK exits live TV back to the Sling home screen.
+        Log.i(TAG, "Sling: Profile picker — pressing CENTER to select default profile")
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling select profile")
         delay(10000)
         sendKey(KeyEvent.KEYCODE_BACK, "Sling back to home")
         delay(3000)
+        dbgScreen("Sling_guide_home")
         if (checkAborted()) return
 
-        // ── NAVIGATE TO GUIDE VIA SIDEBAR ──
-        // After BACK, sidebar is visible with "Home" focused.
-        // Sidebar order (top→bottom): My Profile → Rewards → Search → Home → Guide → DVR → On Demand → Settings
-        // DOWN×1 from Home → Guide
-        Log.i(TAG, "Sling: Navigating to Guide in sidebar (DOWN×1 from Home)")
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Sling sidebar→Guide")
+        // ── NAVIGATE TO GUIDE VIA NAV BAR ──
+        // From home: DOWN×1 focuses the Guide item in the bottom nav bar.
+        // Sidebar order (top→bottom): My Profile → Rewards → Search → Home → Guide
+        // DOWN×1 from Home → Guide. User-verified navigation.
+        Log.i(TAG, "Sling: DOWN×1 to focus Guide in nav bar")
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "Sling open nav bar → Guide")
         delay(600)
+        dbgScreen("Sling_guide_sidebar_guide")
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling open Guide")
         delay(7000)  // EPG grid takes time to fully load
         dbgScreen("Sling_guide_open")
         if (checkAborted()) return
 
         // ── FIND CHANNEL IN GUIDE ──
-        // Guide is a grid: channel names on left, program tiles on right.
-        // UP×50 → scroll to top of channel list (safe overshoot, clamps at first channel).
-        Log.i(TAG, "Sling: Scrolling to top of channel list (UP×50)")
+        // Guide is a grid: channel names on LEFT column, program tiles to the right.
+        // Press LEFT first to make sure focus is on the channel name column (not program tiles).
+        // Then UP×50 → scroll to top of channel list (safe overshoot, clamps at first channel).
+        Log.i(TAG, "Sling: Focusing channel column (LEFT) then scrolling to top (UP×50)")
+        sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Sling focus channel column")
+        delay(400)
         repeat(50) {
             sendKey(KeyEvent.KEYCODE_DPAD_UP, "Sling guide↑")
             delay(100)
         }
         delay(800)
+        dbgScreen("Sling_guide_top")
 
         // DOWN×(position) → navigate to the target channel
         val position = getChannelGuidePosition(channelName.lowercase().trim())
@@ -473,10 +533,10 @@ class ContentLaunchService : Service() {
         }
         delay(600)
 
-        // MEDIA_PLAY tunes to the focused channel and starts live playback
+        // CENTER to select the focused channel row → starts live playback
         dbgScreen("Sling_before_tune")
-        Log.i(TAG, "Sling: Tuning to channel (MEDIA_PLAY)")
-        sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Sling tune to channel")
+        Log.i(TAG, "Sling: Tuning to channel (CENTER)")
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Sling tune to channel")
         delay(5000)
 
         Log.i(TAG, "Sling GUIDE: Done — tuned to '$channelName'")
@@ -762,12 +822,15 @@ class ContentLaunchService : Service() {
         // For safety, try LEFT first (opens sidebar if on home, no-op on profile picker).
         // If profile picker is showing, CENTER first, wait, then LEFT.
         Log.i(TAG, "Hulu: Attempting sidebar navigation (LEFT for home, CENTER+LEFT for profile)")
+        dbgScreen("Hulu_cold_start")
         sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "Hulu try sidebar")
         delay(2000)
+        dbgScreen("Hulu_after_LEFT")
         sendKey(KeyEvent.KEYCODE_DPAD_UP, "Hulu focus search")
         delay(500)
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Hulu open search")
         delay(5000)  // Hulu search keyboard is slow to load
+        dbgScreen("Hulu_search_keyboard")
 
         if (checkAborted()) return
 
@@ -778,6 +841,7 @@ class ContentLaunchService : Service() {
         Log.i(TAG, "Hulu: Typing '$queryToType' via keyboard nav")
         val (_, endCol) = typePvKeyboard(queryToType)
         delay(3000)  // Increased from 2s: wait for search results to populate
+        dbgScreen("Hulu_after_typing")
 
         if (checkAborted()) return
 
@@ -787,6 +851,7 @@ class ContentLaunchService : Service() {
         Log.i(TAG, "Hulu: RIGHT×$rightsToResults to reach results panel")
         repeat(rightsToResults) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "Hulu to results"); delay(250) }
         delay(600)
+        dbgScreen("Hulu_results_focused")
 
         // First result already focused → open show page
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Hulu open show")
@@ -873,6 +938,7 @@ class ContentLaunchService : Service() {
 
         if (checkAborted()) return
 
+        dbgScreen("Hulu_ep_focused")
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "Hulu play episode")
         delay(4000)
         sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "Hulu force play")
@@ -963,13 +1029,16 @@ class ContentLaunchService : Service() {
         //   UP×1 → sidebar "Search" (item 2 of 9)
         //   CENTER → search keyboard opens, focus lands on 'a' (row 0, col 0)
         // NOTE: The initial UP before LEFT was WRONG — it went to the top tab bar, not the sidebar.
+        dbgScreen("D+_cold_start")
         Log.i(TAG, "Disney+: Opening search via sidebar (LEFT→UP→CENTER)")
         sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "D+ left to sidebar (Home item)")
         delay(800)
+        dbgScreen("D+_sidebar")
         sendKey(KeyEvent.KEYCODE_DPAD_UP, "D+ up to Search item")
         delay(500)
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ open search")
         delay(3000)  // Wait for search keyboard to fully appear
+        dbgScreen("D+_search_keyboard")
 
         if (checkAborted()) return
 
@@ -978,9 +1047,12 @@ class ContentLaunchService : Service() {
         // typeDisney7Keyboard() row-reset strategy is confirmed correct.
         // Use up to 15 chars for specificity — 7 was too short and gave ambiguous results.
         Log.i(TAG, "Disney+: Typing '$searchQuery' via 7-col keyboard")
-        val queryToType = searchQuery.lowercase().filter { it.isLetterOrDigit() }.take(15)
+        // Keep spaces so Disney+ search finds the exact title (e.g. "dog with a blog" not "dogwithablog").
+        // Without spaces, search returns wrong shows (e.g. Girl Meets World for "dogwithablog").
+        val queryToType = searchQuery.lowercase().filter { it.isLetterOrDigit() || it == ' ' }.take(20)
         val (_, endCol) = typeDisney7Keyboard(queryToType)
         delay(3000)  // Wait for search results to populate
+        dbgScreen("D+_after_typing")
 
         if (checkAborted()) return
 
@@ -992,6 +1064,7 @@ class ContentLaunchService : Service() {
         Log.i(TAG, "Disney+: RIGHT×$rightsToResults to first result")
         repeat(rightsToResults) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "D+ to results"); delay(250) }
         delay(800)
+        dbgScreen("D+_result_focused")
 
         // Select the first result → show detail page opens
         Log.i(TAG, "Disney+: Opening show detail page")
@@ -1023,6 +1096,7 @@ class ContentLaunchService : Service() {
             // DOWN×1 → into episode area (E1 focused)
             sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ into episode area")
             delay(800)
+            dbgScreen("D+_s1_episode_area")
 
             // Navigate to target episode
             Log.i(TAG, "Disney+: Navigating to Episode $episode")
@@ -1033,6 +1107,7 @@ class ContentLaunchService : Service() {
                 }
             }
             delay(500)
+            dbgScreen("D+_s1_ep_focused")
         } else {
             // ── MULTI-SEASON (season > 1) ──
             // Navigate via season sidebar.
@@ -1055,6 +1130,7 @@ class ContentLaunchService : Service() {
                 delay(400)
             }
             delay(1000)
+            dbgScreen("D+_sidebar_entered")
 
             // Disney+ sidebar: Season 1 (top) → Season N (bottom).
             // UP×10 → safely scroll to Season 1 (top of sidebar)
@@ -1064,6 +1140,7 @@ class ContentLaunchService : Service() {
                 delay(200)
             }
             delay(600)
+            dbgScreen("D+_at_season1")
 
             // DOWN×(season-1) → target season
             Log.i(TAG, "Disney+: Navigating to Season $season (DOWN×${season - 1})")
@@ -1074,11 +1151,13 @@ class ContentLaunchService : Service() {
                 }
             }
             delay(300)
+            dbgScreen("D+_season_selected")
 
             // CENTER → select season
             Log.i(TAG, "Disney+: Selecting season (CENTER)")
             sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ select season")
             delay(4000)  // Wait for season episodes to reload
+            dbgScreen("D+_episodes_loaded")
 
             // RIGHT → from sidebar back to episode list (E1 of selected season)
             Log.i(TAG, "Disney+: Moving to episode list (RIGHT)")
@@ -1094,11 +1173,13 @@ class ContentLaunchService : Service() {
                 }
             }
             delay(500)
+            dbgScreen("D+_ep_focused")
         }
 
         if (checkAborted()) return
 
         // Play the episode
+        dbgScreen("D+_before_play")
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ play episode")
         delay(4000)
         sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "D+ force play")
@@ -1158,144 +1239,140 @@ class ContentLaunchService : Service() {
     private suspend fun launchParamountWithSearch(searchQuery: String, season: Int, episode: Int) {
         Log.i(TAG, "Paramount+: Search mode for '$searchQuery' (S${season}E${episode})")
         // NOTE: startActivity already called in performLaunch() (needsPreLaunch=true).
+
+        // ── COLD START ──
         Log.i(TAG, "Paramount+: Waiting 30s for cold start...")
         delay(30000)
         if (checkAborted()) return
+        dbgScreen("P+_cold_start")
 
-        // Profile picker: "Who's Watching?" shows on cold start with multi-profile accounts.
-        // CENTER selects the first profile. Wait for home screen to load.
-        Log.i(TAG, "Paramount+: Selecting profile (CENTER)")
-        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ select profile")
-        delay(8000)  // Wait for home screen to load after profile selection
-
-        if (checkAborted()) return
-
-        // Navigate to sidebar: DOWN first to ensure we're on content (not header),
-        // then LEFT×5 to reliably trigger the expanded sidebar on P+.
-        Log.i(TAG, "Paramount+: Navigating to sidebar (DOWN→LEFT×5)")
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ into content")
-        delay(500)
-        repeat(5) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "P+ to sidebar"); delay(400) }
+        // ── STEP 1: PROFILE SWITCH TO ADULT PROFILE ──
+        // P+ remembers the last used profile across launches. It may open on the Kids profile.
+        // To ensure we always land on the adult profile:
+        //   DOWN → LEFT  — opens sidebar with "Home" focused
+        //   UP×10        — scrolls to topmost item = main profile avatar (moshe or Kids)
+        //   CENTER       — opens "Who's Watching?" picker
+        //   (wait)       — picker loads
+        //   CENTER       — first profile (moshe) is already focused → selects it
+        //   (wait 8s)    — home reloads under the selected profile
+        Log.i(TAG, "Paramount+: Switching to adult profile")
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ into content row")
+        delay(800)
+        sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "P+ open sidebar")
         delay(1500)
-
-        // UP×10 safely scrolls to topmost sidebar item
-        Log.i(TAG, "Paramount+: Scrolling to top of sidebar (UP×10)")
-        repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_UP, "P+ sidebar↑"); delay(200) }
-        delay(600)
-
-        // Sidebar order (verified March 2026): Logo(top, non-focusable?) → Profile → Search → Home → ...
-        // UP×10 lands at topmost focusable item. May be Logo or Profile depending on firmware.
-        // DOWN×2 is the safe count to reach Search regardless of whether topmost is Logo or Profile.
-        Log.i(TAG, "Paramount+: DOWN×2 to Search icon")
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ sidebar↓ to Profile")
-        delay(400)
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ sidebar↓ to Search")
+        repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_UP, "P+ scroll to profile top"); delay(250) }
         delay(500)
-        Log.i(TAG, "Paramount+: Opening Search (CENTER)")
-        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ open search")
-        delay(5000)  // Longer wait for search screen to load
-
-        if (checkAborted()) return
-
-        // Keyboard activation: DOWN×1 focuses keyboard at 'a' (row 0, col 0)
-        Log.i(TAG, "Paramount+: Activating keyboard (DOWN×1)")
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ activate keyboard")
-        delay(800)
-
-        // Type show name via 6-col DPAD keyboard (same layout as Prime Video)
-        // Use full name (up to 20 chars) for consistent, accurate search results.
-        val queryToType = searchQuery.lowercase().filter { it.isLetterOrDigit() }.take(20)
-        Log.i(TAG, "Paramount+: Typing '$queryToType'")
-        val (_, endCol) = typePvKeyboard(queryToType)
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ open profile picker")
         delay(3000)
-
+        dbgScreen("P+_profile_picker")
+        // First profile (adult) is focused by default — select it
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ select adult profile")
+        delay(8000)
         if (checkAborted()) return
+        dbgScreen("P+_home_after_profile")
 
-        // RIGHT×(6-endCol) jumps from keyboard into results panel
-        val rightsToResults = (6 - endCol).coerceAtLeast(1)
-        Log.i(TAG, "Paramount+: RIGHT×$rightsToResults to results panel")
-        repeat(rightsToResults) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "P+ to results"); delay(200) }
-        delay(500)
-
-        // First result card — may need DOWN×1 if results start below the search suggestions row
-        Log.i(TAG, "Paramount+: Navigating to first result (DOWN×1)")
-        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ down to show card")
+        // ── STEP 2: NAVIGATE TO SEARCH ──
+        // VERIFIED PATH (live test March 2026):
+        //   DOWN  — moves from featured hero to content row
+        //   LEFT  — opens sidebar; "Home" is the focused item
+        //   UP    — moves up one slot to "Search"
+        //   CENTER — opens the search screen; 'a' (col 0) is focused on keyboard
+        Log.i(TAG, "Paramount+: Opening Search (DOWN → LEFT → UP → CENTER)")
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ into content row")
         delay(800)
-        Log.i(TAG, "Paramount+: Selecting show (CENTER)")
-        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ select show")
-        delay(8000)  // Longer wait for show detail page to load
-        dbgScreen("P+_show_page_loaded")
-
+        sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "P+ open sidebar")
+        delay(1500)
+        sendKey(KeyEvent.KEYCODE_DPAD_UP, "P+ to Search item")
+        delay(500)
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ open Search")
+        delay(3000)
+        dbgScreen("P+_search_screen")
         if (checkAborted()) return
 
-        // ── SEASON / EPISODE NAVIGATION ──
-        // P+ show detail page layout:
-        //   [Hero / Play button]           ← initial focus
-        //   [Episodes / Extras tabs]       ← varies, may have extra rows
-        //   [Season tabs: S1 S2 S3 ...]   ← horizontal season selector
-        //   [Episode cards: E1 E2 E3 ...]  ← horizontal episode thumbnails
+        // ── STEP 3: TYPE SEARCH QUERY ──
+        // P+ search bar is a real EditText — ADB 'input text' types directly into it.
+        // Spaces CANNOT be typed with 'input text' alone (ADB %s encoding fails on this app).
+        // Spaces are inserted via D-pad: UP (→ space key on row 0) → CENTER → DOWN (→ back to 'a').
+        // After space insertion, D-pad cursor is back at 'a' (col 0, row 1) for the next word.
+        Log.i(TAG, "Paramount+: Typing '$searchQuery'")
+        val words = searchQuery.lowercase().trim().split(" ").filter { it.isNotEmpty() }
+        words.forEachIndexed { idx, word ->
+            val clean = word.filter { it.isLetterOrDigit() }
+            if (clean.isNotEmpty()) {
+                typeTextViaAdb(clean)
+                delay(400)
+            }
+            if (idx < words.size - 1) {
+                // Insert space via keyboard D-pad navigation
+                sendKey(KeyEvent.KEYCODE_DPAD_UP, "P+ to space key row")
+                delay(300)
+                sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ insert space")
+                delay(300)
+                sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ back to 'a' row")
+                delay(300)
+            }
+        }
+        delay(2000)
+        dbgScreen("P+_query_typed")
+        if (checkAborted()) return
+
+        // ── STEP 4: JUMP TO FIRST SEARCH RESULT ──
+        // After typing, D-pad cursor is at 'a' (col 0).
+        // RIGHT×6 from col 0 exits the keyboard and lands directly on the FIRST result.
+        // No DOWN needed — the first result is in the same row as the keyboard exit.
+        Log.i(TAG, "Paramount+: RIGHT×6 to first result")
+        repeat(6) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "P+ to results"); delay(200) }
+        delay(500)
+        Log.i(TAG, "Paramount+: Selecting first result (CENTER)")
+        sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ select show")
+        delay(8000)
+        dbgScreen("P+_show_page")
+        if (checkAborted()) return
+
+        // ── STEP 5: SEASON / EPISODE NAVIGATION ──
         //
-        // DIFFERENTIAL ALGORITHM: Handle single-season vs multi-season differently.
+        // VERIFIED PATH (live test March 2026, Blue Bloods S5E2):
+        //   Show page opens with WATCH NOW button focused.
+        //   DOWN    — enters Season 1's episode list (at "next episode" for S1)
+        //   UP      — moves back up to Season 1 tab in the horizontal season bar
+        //   RIGHT×(season-1) — navigates to target season tab
+        //   DOWN    — enters that season's episode list
+        //             (starts at Ep1 for seasons with no watch history,
+        //              or "next episode" for partially-watched seasons)
+        //   RIGHT×(episode-1) — moves to target episode
+        //   CENTER  — plays
+        //
+        // ⚠️ CRITICAL: Do NOT use LEFT to nudge toward Ep1.
+        //    LEFT from Episode 1 silently changes the season — verified in live test.
+        Log.i(TAG, "Paramount+: Navigating to S${season}E${episode}")
 
-        if (season <= 1) {
-            // ── SINGLE SEASON (or S1 requested) ──
-            // Scroll down aggressively to reach episodes, skip season tabs.
-            Log.i(TAG, "Paramount+: Season 1 — scrolling to episodes (DOWN×5)")
-            repeat(5) {
-                sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ scroll to episodes")
-                delay(500)
-            }
-            delay(800)
+        // Enter episode list and immediately back up to season tab row
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ enter episode list")
+        delay(1200)
+        sendKey(KeyEvent.KEYCODE_DPAD_UP, "P+ up to season tab row")
+        delay(800)
 
-            // LEFT×10 safe nudge to E1
-            repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "P+ nudge to E1"); delay(150) }
-            delay(400)
+        // Navigate to target season (default is Season 1)
+        if (season > 1) {
+            Log.i(TAG, "Paramount+: Moving to Season $season (RIGHT×${season - 1})")
+            repeat(season - 1) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "P+ season →"); delay(400) }
+            delay(600)
+        }
 
-            // RIGHT×(episode-1) → target episode
-            Log.i(TAG, "Paramount+: Navigating to Episode $episode")
-            if (episode > 1) {
-                repeat(episode - 1) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "P+ episode→"); delay(350) }
-            }
-            delay(500)
-        } else {
-            // ── MULTI-SEASON (season > 1) ──
-            // DOWN×3 to reach season tabs area (overshoots past hero/extras)
-            Log.i(TAG, "Paramount+: Navigating to S${season}E${episode}")
-            repeat(3) {
-                sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ to season tabs area")
-                delay(600)
-            }
-            delay(500)
+        // Enter target season's episode list (lands at Ep1 for unwatched seasons)
+        sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ enter S${season} episode list")
+        delay(1200)
 
-            // LEFT×10 safe nudge to S1
-            repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "P+ nudge to S1"); delay(150) }
-            delay(400)
-
-            // RIGHT×(season-1) → target season tab
-            Log.i(TAG, "Paramount+: Selecting Season $season")
-            repeat(season - 1) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "P+ season→"); delay(400) }
-            sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ select season")
-            delay(3000)
-
-            // DOWN×1 → episode cards row
-            sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "P+ to episode cards")
-            delay(800)
-
-            // LEFT×10 safe nudge to E1
-            repeat(10) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "P+ nudge to E1"); delay(150) }
-            delay(400)
-
-            // RIGHT×(episode-1) → target episode
-            Log.i(TAG, "Paramount+: Selecting Episode $episode")
-            if (episode > 1) {
-                repeat(episode - 1) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "P+ episode→"); delay(350) }
-            }
+        // Navigate to target episode from the landing position
+        if (episode > 1) {
+            Log.i(TAG, "Paramount+: Moving to Episode $episode (RIGHT×${episode - 1})")
+            repeat(episode - 1) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "P+ episode →"); delay(350) }
             delay(500)
         }
 
+        dbgScreen("P+_ep_focused")
+        Log.i(TAG, "Paramount+: Playing S${season}E${episode} of '$searchQuery'")
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "P+ play episode")
-        delay(4000)
-        sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "P+ force play")
         delay(3000)
 
         Log.i(TAG, "Paramount+: Done — S${season}E${episode} of '$searchQuery'")
@@ -1347,13 +1424,16 @@ class ContentLaunchService : Service() {
 
         // Open search via sidebar navigation.
         // NOTE: KEYCODE_SEARCH (84) opens Google Katniss voice assistant on this device — do NOT use.
+        dbgScreen("PV_cold_start")
         Log.i(TAG, "Prime Video: Opening search via sidebar (DPAD_LEFT + UP + CENTER)")
         sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "PV open sidebar")
         delay(1000)
+        dbgScreen("PV_sidebar_open")
         sendKey(KeyEvent.KEYCODE_DPAD_UP, "PV focus search")
         delay(500)
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PV open search")
         delay(2500)
+        dbgScreen("PV_search_open")
 
         // Type show name via keyboard navigation (full name for accurate results).
         // ADB `input text` does NOT work on Prime Video's custom keyboard.
@@ -1361,6 +1441,7 @@ class ContentLaunchService : Service() {
         Log.i(TAG, "Prime Video: Typing '$queryToType' via keyboard navigation")
         val (_, endCol) = typePvKeyboard(queryToType)
         delay(1500)
+        dbgScreen("PV_after_typing")
 
         if (checkAborted()) return
 
@@ -1373,15 +1454,18 @@ class ContentLaunchService : Service() {
             delay(200)
         }
         delay(300)
+        dbgScreen("PV_at_results")
 
         // DOWN×1: suggestion chips → first content card (our show)
         sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV to first result card")
         delay(600)
+        dbgScreen("PV_result_focused")
 
         // Open show detail page
         Log.i(TAG, "Prime Video: Opening show detail page")
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PV open show")
         delay(6000)  // Increased: show page needs time to fully load
+        dbgScreen("PV_show_page")
 
         if (checkAborted()) return
 
@@ -1420,6 +1504,7 @@ class ContentLaunchService : Service() {
                 delay(500)
             }
             delay(1000)
+            dbgScreen("PV_s1_episode_area")
 
             // LEFT×5 safe nudge to E1
             repeat(5) {
@@ -1427,6 +1512,7 @@ class ContentLaunchService : Service() {
                 delay(200)
             }
             delay(400)
+            dbgScreen("PV_s1_at_e1")
 
             // RIGHT×(episode-1) → target episode
             Log.i(TAG, "Prime Video: Navigating to Episode $episode")
@@ -1437,6 +1523,7 @@ class ContentLaunchService : Service() {
                 }
             }
             delay(500)
+            dbgScreen("PV_s1_ep_focused")
         } else {
             // ── MULTI-SEASON (season > 1) ──
             // Use season dropdown to select correct season first.
@@ -1446,6 +1533,7 @@ class ContentLaunchService : Service() {
                 delay(500)
             }
             delay(1000)
+            dbgScreen("PV_multi_episode_area")
 
             // Navigate UP×1 from episode row to Season dropdown
             // VERIFIED: "Seasons and Episodes" label is non-focusable, so
@@ -1453,11 +1541,13 @@ class ContentLaunchService : Service() {
             Log.i(TAG, "Prime Video: Navigating UP to Season dropdown")
             sendKey(KeyEvent.KEYCODE_DPAD_UP, "PV to season dropdown")
             delay(600)
+            dbgScreen("PV_at_dropdown")
 
             // Open season dropdown
             Log.i(TAG, "Prime Video: Opening season dropdown")
             sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PV open season dropdown")
             delay(2000)
+            dbgScreen("PV_dropdown_open")
 
             // Scroll UP×15 to safely reach Season 1 in the dropdown list
             Log.i(TAG, "Prime Video: Scrolling to Season 1 in dropdown")
@@ -1466,6 +1556,7 @@ class ContentLaunchService : Service() {
                 delay(200)
             }
             delay(400)
+            dbgScreen("PV_dropdown_at_s1")
 
             // Navigate DOWN to target season
             Log.i(TAG, "Prime Video: Selecting Season $season")
@@ -1473,8 +1564,10 @@ class ContentLaunchService : Service() {
                 sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV season↓")
                 delay(350)
             }
+            dbgScreen("PV_dropdown_season_highlighted")
             sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PV select season")
             delay(3000)  // Wait for season episodes to reload
+            dbgScreen("PV_season_selected")
 
             if (checkAborted()) return
 
@@ -1486,6 +1579,7 @@ class ContentLaunchService : Service() {
             delay(500)
             sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "PV to episode row")
             delay(1000)
+            dbgScreen("PV_episode_row")
 
             // LEFT×5 safe nudge to E1
             repeat(5) {
@@ -1493,6 +1587,7 @@ class ContentLaunchService : Service() {
                 delay(200)
             }
             delay(400)
+            dbgScreen("PV_at_e1")
 
             // RIGHT×(episode-1) → target episode
             if (episode > 1) {
@@ -1502,11 +1597,13 @@ class ContentLaunchService : Service() {
                 }
             }
             delay(500)
+            dbgScreen("PV_ep_focused")
         }
 
         if (checkAborted()) return
 
         // Play the episode
+        dbgScreen("PV_before_play")
         sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "PV play")
         delay(4000)
         sendKey(KeyEvent.KEYCODE_MEDIA_PLAY, "PV force play")
@@ -1623,7 +1720,31 @@ class ContentLaunchService : Service() {
         var curCol = 0
 
         for (ch in text) {
-            val target = charMap[ch] ?: continue  // Skip unmapped chars
+            if (ch == ' ') {
+                // Space bar: in the top row, one RIGHT from the × (delete) button.
+                // Navigation: reset to row 0 → col 0 → UP×1 (×) → RIGHT×1 (space bar) → CENTER
+                // Return path: LEFT×1 (back to ×) → DOWN×1 (back to 'a' row 0, col 0)
+                if (curRow > 0) {
+                    repeat(curRow) { sendKey(KeyEvent.KEYCODE_DPAD_UP, "D+ kbd reset↑ ' '"); delay(250) }
+                    curRow = 0
+                }
+                if (curCol > 0) {
+                    repeat(curCol) { sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "D+ kbd← ' '"); delay(250) }
+                }
+                sendKey(KeyEvent.KEYCODE_DPAD_UP, "D+ to top bar ' '"); delay(300)
+                sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, "D+ to space bar ' '"); delay(300)
+                sendKey(KeyEvent.KEYCODE_DPAD_CENTER, "D+ type ' '"); delay(500)
+                // Return: LEFT×1 (space bar → × button) → DOWN×1 (back to row 0).
+                // The × button is visually above col 1 ('b'), so DOWN from × lands at col 1, not col 0.
+                // Set curCol = 1 to reflect actual focus position after space navigation.
+                sendKey(KeyEvent.KEYCODE_DPAD_LEFT, "D+ space→× ' '"); delay(300)
+                sendKey(KeyEvent.KEYCODE_DPAD_DOWN, "D+ ×→row0 ' '"); delay(300)
+                curRow = 0
+                curCol = 1  // × is above col 1, so DOWN from × lands at 'b' (col 1)
+                continue
+            }
+
+            val target = charMap[ch] ?: continue  // Skip other unmapped chars
 
             // Step 1: Reset to row 0 by pressing UP from current row.
             // This way each character always navigates DOWN-only from row 0,
@@ -1810,6 +1931,8 @@ class ContentLaunchService : Service() {
      * Spaces are encoded as %s for compatibility.
      */
     private suspend fun typeTextViaAdb(text: String) {
+        val pkg = AlarmAccessibilityService.instance?.currentPackage ?: "unknown"
+        Log.i("NAV_MONITOR", "ACTION|$pkg|action:typeTextViaAdb|text:$text")
         withContext(Dispatchers.IO) {
             // Remove characters that break shell command parsing
             val safe = text.replace("'", "")
@@ -1828,12 +1951,18 @@ class ContentLaunchService : Service() {
 
     /** Send a single key event via ADB shell. */
     private suspend fun sendKey(keyCode: Int, label: String) {
+        // Log the action to NAV_MONITOR before sending — PC script picks this up
+        val pkg = AlarmAccessibilityService.instance?.currentPackage ?: "unknown"
+        Log.i("NAV_MONITOR", "ACTION|$pkg|action:$label|keycode:$keyCode")
+
         withContext(Dispatchers.IO) {
             try {
                 val sent = AdbShell.sendKeyEvent(keyCode)
                 Log.i(TAG, "$label: success=$sent")
+                Log.i("NAV_MONITOR", "ACTION|$pkg|result:${if (sent) "sent_ok" else "send_failed"}|label:$label")
             } catch (e: Exception) {
                 Log.w(TAG, "$label failed: ${e.message}")
+                Log.w("NAV_MONITOR", "ACTION|$pkg|result:exception|label:$label|error:${e.message}")
             }
         }
     }
@@ -1850,7 +1979,7 @@ class ContentLaunchService : Service() {
      * Or use scrcpy for lower-latency mirroring:
      *   scrcpy --tcpip=192.168.1.90:5555
      */
-    private val debugScreenshots = false  // Set to true to capture step-by-step screenshots
+    private val debugScreenshots = true  // Set to true to capture step-by-step screenshots
 
     private suspend fun dbgScreen(stepName: String) {
         if (!debugScreenshots) return
